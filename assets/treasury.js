@@ -157,7 +157,7 @@ function refundRequestDialog(h){
 function refundReviewDialog(h,s,r){
  let actions="";
  if(isSupervisor(s)&&r.status==="requested")actions='<div class="t-modal-actions"><button class="button secondary" data-refund-decision="deny">Deny request</button><button class="button" data-refund-decision="approve">Authorize credit</button></div>';
- if(isSupervisor(s)&&r.status==="authorized")actions='<button class="button" data-refund-decision="disburse">Disburse fictional refund</button>';
+ if(isSupervisor(s)&&r.status==="authorized")actions='<button class="button secondary" data-refund-decision="cancel">Cancel authorization</button><button class="button" data-refund-decision="disburse">Disburse fictional refund</button>';
  modal(h,"Refund file · RF-"+r.id.slice(0,8).toUpperCase(),
  '<div class="t-account-summary">'+[["Taxpayer",r.taxpayerName],["Tax year",r.taxYear],["Amount",dollars(r.amountCents)],
  ["Status",r.status],["Requested",date(r.createdAt)],["Original reason",r.reason]].map(row).join("")+'</div>'+
@@ -167,6 +167,7 @@ function refundReviewDialog(h,s,r){
  el.querySelectorAll("[data-refund-decision]").forEach(btn=>btn.addEventListener("click",()=>withWait(el,btn,async()=>{
   const act=btn.dataset.refundDecision,reason=el.querySelector("#t-decision-note").value;
   if(act==="disburse")await call("disburseTreasuryRefund",{refundId:r.id,reason});
+  else if(act==="cancel")await call("cancelTreasuryRefund",{refundId:r.id,reason});
   else await call("decideTreasuryRefund",{refundId:r.id,decision:act,reason});
   el.remove();h.toast("Refund file updated.");await h.reload();
  })));

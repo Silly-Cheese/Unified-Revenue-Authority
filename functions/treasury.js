@@ -337,3 +337,48 @@ export const reconcileTreasury=onCall(opts,async req=>{
   totalCreditCents:credit,chartNetCents:balance,
   note:"This verifies stored general-ledger controls, not external bank settlement."};
 });
+
+// Generation 4: attach a formally authorized audit/appeals adjustment to the same
+// balanced Treasury ledger. Invoked inside a Firestore transaction before any writes.
+export async function postCaseAdjustmentInTx(tx,actor,caseRecord,newTaxDueCents,reference){
+ const acctRef=db().collection("treasuryAccounts").doc(caseRecord.taxAccountId);
+ const snap=await tx.get(acctRef);
+ if(!snap.exists)fail("not-found","Underlying tax account not found.");
+ const previous=deriveAccount(snap.data());
+ if(previous.taxpayerId!==caseRecord.taxpayerId)fail("failed-precondition","Mismatch in case-linked account.");
+ let change;
+ try{change=assessmentChange(previous,{taxDueCents:newTaxDueCents,paymentsCents:previous.declaredPaymentsCents});}
+ catch(e){fail("failed-precondition",e.message);}
+ saveAccount(tx,acctRef,previous,{...change.next,latestCaseAdjustmentId:reference});
+ postJournal(tx,{id:reference,accountRef:acctRef,actor,kind:"case_adjustment",
+  description:"Approved administrative tax adjustment — "+caseRecord.caseNumber,
+  lines:change.lines,relatedId:reference});
+ return {oldTaxCents:previous.assessedCents,newTaxCents:change.next.assessedCents,
+  taxDeltaCents:change.deltaTaxCents,accountId:acctRef.id};
+}
+
+
+// Generation 4 correction workflow: release authorized but unpaid fictional refunds
+// so an administrative reassessment does not conflict with a reserved credit.
+export const cancelTreasuryRefund=onCall(opts,async req=>{
+ const actor=await currentActor(req);permit(actor,reviewerRoles);
+ const refundId=id(req.data?.refundId),reason=note(req.data?.reason,12,1000);
+ const refundRef=db().collection("treasuryRefunds").doc(refundId);
+ await db().runTransaction(async tx=>{
+  const snap=await tx.get(refundRef);
+  if(!snap.exists||snap.data().status!=="authorized")
+   fail("failed-precondition","Only an authorized and unpaid refund can be cancelled.");
+  const refund=snap.data(),accountRef=db().collection("treasuryAccounts").doc(refund.taxAccountId);
+  const accountSnap=await tx.get(accountRef);
+  if(!accountSnap.exists)fail("not-found","Associated tax account not found.");
+  const old=deriveAccount(accountSnap.data());
+  let next;try{next=releaseRefund(old,refund.amountCents);}catch(e){fail("failed-precondition",e.message);}
+  saveAccount(tx,accountRef,old,next);
+  tx.update(refundRef,{status:"cancelled",cancellationReason:reason,
+   cancelledBy:actor.uid,cancelledAt:FieldValue.serverTimestamp(),
+   updatedAt:FieldValue.serverTimestamp()});
+  tx.create(db().collection("auditLogs").doc(),actorLog(actor,"Refund authorization cancelled",
+   reason,refundId));
+ });
+ return {ok:true};
+});

@@ -47,6 +47,12 @@ service cloud.firestore {
   match /treasuryChart/{id} { allow read, write: if false; }
   match /treasuryControl/{id} { allow read, write: if false; }
   match /treasuryReconciliations/{id} { allow read, write: if false; }
+  // Generation 4: case files, notices, timelines and approved adjustment records
+  // are restricted to server-side functions (user-specific filtered responses).
+  match /agencyCases/{id} { allow read, write: if false; }
+  match /agencyCaseEvents/{id} { allow read, write: if false; }
+  match /agencyNotices/{id} { allow read, write: if false; }
+  match /agencyCaseAdjustments/{id} { allow read, write: if false; }
   match /system/{id} {
    allow read, write: if false;
   }

@@ -23,11 +23,14 @@ jobs:
           node --check assets/app.js
           node --check assets/tax.js
           node --check assets/treasury.js
+          node --check assets/cases.js
           node --check assets/auth.js
           node --check assets/firebase.js
           node --check functions/index.js
           node --check functions/tax.js
           node --check functions/treasury.js
+          node --check functions/cases.js
+          node --check functions/lib/case-workflow.js
           node --check functions/lib/treasury-engine.js
           node --check functions/lib/tax-engine.js
           node --check functions/scripts/bootstrap.js

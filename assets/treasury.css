@@ -23,3 +23,5 @@
 .t-dialog-error{font-size:12px;color:#b2424f;padding-top:10px;line-height:1.6}
 @media(max-width:1130px){.t-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.t-metrics,.t-ledger-strip{grid-template-columns:1fr}.t-hero{padding:23px}.t-hero h2{font-size:19px}.t-hero-symbol{display:none}.t-picker{flex-direction:column;align-items:stretch}.t-metric strong{font-size:21px}}
+
+.t-cancelled{background:#f3eef4;color:#765574}
