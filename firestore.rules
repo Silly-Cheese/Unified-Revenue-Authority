@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn() { return request.auth != null; }
+  function myProfile() {
+   return get(/databases/$(database)/documents/users/$(request.auth.uid));
+  }
+  function active() {
+   return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+     && myProfile().data.status == 'active';
+  }
+  function commissioner() { return active() && myProfile().data.role == 'commissioner'; }
+  function personnel() {
+   return active() && myProfile().data.role in ['commissioner', 'supervisor', 'staff', 'auditor'];
+  }
+  match /users/{uid} {
+   allow get: if active() && (request.auth.uid == uid || commissioner());
+   allow list: if commissioner();
+   allow create, update, delete: if false;
+  }
+  match /taxpayers/{id} {
+   allow get: if personnel() || (active() && resource.data.ownerUid == request.auth.uid);
+   allow list: if personnel();
+   allow create, update, delete: if false;
+  }
+  match /auditLogs/{id} {
+   allow get, list: if personnel();
+   allow create, update, delete: if false;
+  }
+  match /system/{id} {
+   allow read, write: if false;
+  }
+  match /{document=**} {
+   allow read, write: if false;
+  }
+ }
+}

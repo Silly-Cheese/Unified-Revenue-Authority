@@ -1,0 +1,201 @@
+import {auth,db} from "./firebase.js";
+import {authListener,profile,register,login,logout,call} from "./auth.js";
+import {collection,getDocs,query,orderBy,limit} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+
+const app=document.getElementById("app");
+const state={user:null,me:null,authMode:"login",authBusy:false,page:"dashboard",loading:false,overview:null,taxpayers:[],users:[],events:[],search:"",menu:false};
+const paths={
+ landmark:'<path d="m3 10 9-6 9 6M4 10h16M6 10v9M10 10v9M14 10v9M18 10v9M3 21h18"/>',
+ grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+ users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 4a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87"/>',
+ file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8"/>',
+ bank:'<path d="M3 10h18M5 10v10m5-10v10m4-10v10m5-10v10M2 21h20M12 2 2 8h20z"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 3"/>',
+ shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4"/>',
+ receipt:'<path d="M4 3h16v18l-4-2-4 2-4-2-4 2zM8 8h8M8 12h8"/>',
+ chart:'<path d="M3 3v18h18M7 16v-4m5 4V7m5 9V9"/>',
+ settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a2 2 0 0 0 .4 2.2l-1.8 1.8a2 2 0 0 0-2.2-.4l-1 .4a2 2 0 0 0-1.3 1.8H10.5A2 2 0 0 0 9.2 19l-1-.4a2 2 0 0 0-2.2.4l-1.8-1.8A2 2 0 0 0 4.6 15l-.4-1a2 2 0 0 0-1.8-1.3v-2.6A2 2 0 0 0 4.2 8.8l.4-1a2 2 0 0 0-.4-2.2L6 3.8a2 2 0 0 0 2.2.4l1-.4A2 2 0 0 0 10.5 2h3a2 2 0 0 0 1.3 1.8l1 .4a2 2 0 0 0 2.2-.4l1.8 1.8a2 2 0 0 0-.4 2.2l.4 1a2 2 0 0 0 1.8 1.3v2.6a2 2 0 0 0-1.8 1.3z"/>',
+ search:'<circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ chevron:'<path d="m9 18 6-6-6-6"/>',
+ logout:'<path d="M10 17l5-5-5-5m5 5H3M13 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6"/>',
+ menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+ close:'<path d="M5 5l14 14M19 5 5 19"/>',
+ activity:'<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+ wallet:'<rect x="2" y="5" width="20" height="16" rx="2"/><path d="M2 9h20M16 15h2"/>',
+ layers:'<rect x="3" y="3" width="18" height="5" rx="1"/><rect x="3" y="10" width="18" height="5" rx="1"/><rect x="3" y="17" width="18" height="5" rx="1"/>',
+ check:'<path d="m5 12 4 4L19 6"/>',
+ info:'<circle cx="12" cy="12" r="10"/><path d="M12 11v6M12 7h.01"/>'
+};
+function icon(name){return '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">'+(paths[name]||paths.file)+'</svg>';}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function initials(name){return String(name||"U").split(" ").slice(0,2).map(w=>w[0]||"").join("").toUpperCase();}
+function roleLabel(r){return ({commissioner:"Commissioner of Revenue",supervisor:"Division Supervisor",staff:"Revenue Officer",auditor:"Examination Officer",citizen:"Registered Taxpayer"})[r]||"Citizen";}
+function isStaff(){return state.me&&state.me.role!=="citizen";}
+function isCommissioner(){return state.me?.role==="commissioner";}
+function formatDate(ts){try{if(!ts)return "—";return new Date(ts.toDate?ts.toDate():ts).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}catch{return "—";}}
+function toast(message,bad=false){document.querySelector(".toast")?.remove();const el=document.createElement("div");el.className="toast"+(bad?" bad":"");el.textContent=message;document.body.append(el);setTimeout(()=>el.remove(),4200);}
+function authError(e){const raw=e?.code||"";if(raw.includes("email-already-in-use"))return "An account already uses this name. Please sign in or choose another fictional name.";if(raw.includes("invalid-credential")||raw.includes("wrong-password")||raw.includes("user-not-found"))return "Incorrect name or password.";if(raw.includes("too-many-requests"))return "Too many attempts. Try again later.";if(raw.includes("network-request-failed"))return "Network unavailable. Check your internet connection.";return e?.message||"Something went wrong. Please try again.";}
+function renderAuth(err=""){
+ app.innerHTML='<div class="auth-shell"><section class="auth-cover"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED<br>REVENUE AUTHORITY</span></div><div><div class="eyebrow">The nation’s financial administration</div><h1>Precision in every <em>decision.</em></h1><p class="auth-copy">A complete fictional revenue institution—taxpayer services, agency operations, treasury administration, and financial accountability.</p></div><div class="auth-foot">OFFICIAL RP SIMULATION · NO REAL TAX OR FINANCIAL SERVICES</div></section><section class="auth-side"><div class="auth-card"><div class="eyebrow" style="color:#a48655;margin-bottom:14px">Secure agency access</div><h2>'+(state.authMode==="login"?"Welcome back":"Establish your account")+'</h2><p>'+(state.authMode==="login"?"Sign in to your secure roleplay account.":"Register a fictional identity. No real email address is required.")+'</p><div class="switch"><button type="button" data-mode="login" class="'+(state.authMode==="login"?"active":"")+'">Sign in</button><button type="button" data-mode="register" class="'+(state.authMode==="register"?"active":"")+'">Create account</button></div><form id="auth-form"><div class="field"><label for="fullName">Full character name</label><input id="fullName" class="input" autocomplete="username" required maxlength="60" placeholder="e.g., Jordan Vale"></div><div class="field"><label for="password">Password</label><input id="password" class="input" type="password" required minlength="'+(state.authMode==="register"?"10":"1")+'" autocomplete="'+(state.authMode==="register"?"new-password":"current-password")+'" placeholder="Enter your password"></div>'+(state.authMode==="register"?'<div class="field"><label for="confirm">Confirm password</label><input id="confirm" class="input" type="password" required minlength="10" autocomplete="new-password" placeholder="Re-enter your password"></div>':'')+'<div id="form-message">'+(err?'<div class="error">'+esc(err)+'</div>':"")+'</div><button type="submit" class="button full" id="auth-submit">'+(state.authMode==="login"?"Access your account":"Create roleplay account")+'</button></form><div class="notice"> '+icon("shield")+' <strong>Roleplay accounts:</strong> Your chosen name and password are your login credentials. No email verification or real personal information is necessary. Password recovery requires an agency administrator.</div><div class="mini-footer">Unified Revenue Authority · Fictional government simulation</div></div></section></div>';
+ document.querySelectorAll("[data-mode]").forEach(el=>el.addEventListener("click",()=>{state.authMode=el.dataset.mode;renderAuth();}));
+ document.getElementById("auth-form").addEventListener("submit",async event=>{
+ event.preventDefault();if(state.authBusy)return;const name=document.getElementById("fullName").value;const pass=document.getElementById("password").value;
+ if(state.authMode==="register"&&pass!==document.getElementById("confirm").value){document.getElementById("form-message").innerHTML='<div class="error">Passwords do not match.</div>';return;}
+ state.authBusy=true;document.getElementById("auth-submit").disabled=true;
+ try{
+  if(state.authMode==="register")await register(name,pass);else await login(name,pass);
+  state.user=auth.currentUser;state.me=await profile(state.user.uid);
+  if(!state.me)throw Error("Account profile not found. Please contact the agency administrator.");
+  await enter();
+ }catch(e){renderAuth(authError(e));}finally{state.authBusy=false;}
+ });
+}
+const adminNav=[["dashboard","grid","Command center"],["taxpayers","users","Taxpayer registry"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
+function sidebar(){
+ const pages=isStaff()?adminNav:[["dashboard","grid","My overview"],["account","settings","My account"]];
+ if(isCommissioner())pages.splice(2,0,["staff","shield","Personnel & roles"]);
+ return '<aside class="sidebar'+(state.menu?" open":"")+'"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED REVENUE<br>AUTHORITY</span></div><div class="sidebar-section">Agency workspace</div><nav class="nav">'+pages.map(p=>'<a href="#'+p[0]+'" class="'+(state.page===p[0]?"active":"")+'">'+icon(p[1])+esc(p[2])+'</a>').join("")+'</nav><div class="sidebar-bottom"><div class="identity"><div class="avatar">'+esc(initials(state.me?.displayName))+'</div><div><div class="who">'+esc(state.me?.displayName)+'</div><div class="role">'+esc(roleLabel(state.me?.role))+'</div></div></div><button class="button ghost" id="logout" style="margin-top:15px;color:#cad8e5;width:100%">'+icon("logout")+' Sign out</button></div></aside>';
+}
+function pageHeader(title,sub,action=""){return '<div class="page-head"><div><div class="eyebrow" style="color:#aa8959">UNIFIED REVENUE AUTHORITY / OPERATIONS</div><h1>'+esc(title)+'</h1><p>'+esc(sub)+'</p></div>'+action+'</div>';}
+function kpi(label,value,foot,ico){return '<div class="kpi"><div class="kpi-label">'+esc(label)+icon(ico)+'</div><div class="kpi-value">'+esc(value)+'</div><div class="kpi-foot">'+esc(foot)+'</div></div>';}
+function renderShell(){
+ if(!state.me){renderAuth();return;}
+ const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions"}[state.page]||"Operations";
+ app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY · GENERATION 1 / 6</div></main></div></div>';
+ document.getElementById("logout").addEventListener("click",async()=>{await logout();state.user=null;state.me=null;state.page="dashboard";renderAuth();});
+ document.getElementById("mobile-menu")?.addEventListener("click",()=>{state.menu=!state.menu;renderShell();});
+ document.getElementById("shade")?.addEventListener("click",()=>{state.menu=false;renderShell();});
+ document.querySelectorAll(".nav a").forEach(a=>a.addEventListener("click",()=>{state.menu=false;}));
+ bindPage();
+}
+function pageHTML(){
+ if(state.page==="taxpayers"&&isStaff())return taxpayersPage();
+ if(state.page==="staff"&&isCommissioner())return staffPage();
+ if(state.page==="activity"&&isStaff())return activityPage();
+ if(state.page==="account")return accountPage();
+ if(state.page==="modules"&&isStaff())return modulesPage();
+ return dashboardPage();
+}
+function dashboardPage(){
+ if(!isStaff())return pageHeader("Your taxpayer portal","Your personal filing and correspondence workspace.")+'<div class="stat-strip"><div><div class="eyebrow" style="color:#d4b787">CITIZEN SERVICES</div><h2 style="margin-top:8px">Welcome, '+esc(state.me.displayName)+'</h2><p>Your fictional taxpayer account is active. Online returns, payments and correspondence will become available in upcoming generations.</p></div>'+icon("shield")+'</div><div class="kpis">'+kpi("Tax returns","0","Filing workflow arrives in Generation 2","file")+kpi("Outstanding taxes","$0.00","No assessed liability","wallet")+kpi("Refunds","$0.00","No authorized disbursements","receipt")+kpi("Account status","Active","Your account is ready","shield")+'</div><div class="card card-pad"><div class="section-head"><h2>Registered identity</h2><span class="pill">Active</span></div><div class="detail-grid">'+detail("Full name",state.me.displayName)+detail("Taxpayer record",state.me.taxpayerId||"Pending")+detail("Access level","Citizen account")+detail("Account opened",formatDate(state.me.createdAt))+'</div></div>';
+ const summary=state.overview||{};
+ return pageHeader("Agency command center","A unified view of operations, people, and the founding revenue administration.")+
+ '<div class="stat-strip"><div><div class="eyebrow" style="color:#d4b787">OFFICE OF THE COMMISSIONER</div><h2 style="margin-top:8px">Good to see you, '+esc(state.me.displayName)+'.</h2><p>Generation 1 establishes the agency registry, secure personnel controls, and operational foundations.</p></div><button class="button" id="viewRegistry">'+icon("users")+' Open taxpayer registry</button></div>'+
+ '<div class="kpis">'+kpi("Registered taxpayers",String(summary.taxpayers??"—"),"Live agency registry","users")+kpi("Personnel accounts",String(summary.personnel??"—"),"Authorized employees","shield")+kpi("Returns awaiting review","0","Return processing · Gen 2","file")+kpi("Treasury collected","$0.00","Accounting ledger · Gen 3","bank")+'</div>'+
+ '<div class="grid-two"><div class="card card-pad"><div class="section-head"><h2>Agency division roadmap</h2><button class="link" id="viewModules">View all divisions →</button></div>'+[
+ ["01","Foundational administration","Active"],
+ ["02","Tax filing & assessments","Generation 2"],
+ ["03","Treasury & refunds","Generation 3"],
+ ["04","Examinations & appeals","Generation 4"]
+ ].map(r=>'<div class="activity-row"><div class="activity-dot">'+esc(r[0])+'</div><div style="flex:1"><strong>'+esc(r[1])+'</strong><p>'+esc(r[2])+'</p></div><span class="pill '+(r[2]!=="Active"?"gray":"")+'">'+esc(r[2]==="Active"?"Available":"Planned")+'</span></div>').join("")+'</div><div class="card card-pad"><div class="section-head"><h2>Recent agency activity</h2></div>'+recentEvents(4)+'</div></div>';
+}
+function recentEvents(n=20){
+ return (state.events?.length?state.events.slice(0,n).map(e=>'<div class="activity-row"><div class="activity-dot">'+icon("activity")+'</div><div><strong>'+esc(e.action||"Agency event")+'</strong><p>'+esc(e.detail||"Recorded activity")+'</p><p>'+esc(formatDate(e.createdAt))+'</p></div></div>').join(""):'<div class="empty">'+icon("clock")+'<div>No activity recorded yet.<br>Actions will appear here as your agency operates.</div></div>');
+}
+function taxpayersPage(){
+ const term=state.search.toLowerCase();
+ const list=state.taxpayers.filter(x=>(x.fullName+" "+x.taxpayerNumber+" "+x.region).toLowerCase().includes(term));
+ return pageHeader("Taxpayer registry","Create, locate, and review secure fictional taxpayer records.",'<button class="button" id="newTaxpayer">'+icon("plus")+' Register taxpayer</button>')+
+ '<div class="toolbar"><input class="input" id="searchTax" value="'+esc(state.search)+'" placeholder="Search name, reference or region" aria-label="Search taxpayers"><span class="pill gray">'+state.taxpayers.length+' total records</span></div>'+
+ '<div class="card card-pad"><div class="section-head"><h2>Registry entries</h2><span class="help">Institutional taxpayer records</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Taxpayer</th><th>Reference</th><th>Type</th><th>Region</th><th>Status</th><th></th></tr></thead><tbody>'+
+ (list.length?list.map(t=>'<tr><td class="name">'+esc(t.fullName)+'</td><td>'+esc(t.taxpayerNumber||t.id)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.region||"—")+'</td><td><span class="pill '+(t.status==="archived"?"gray":"")+'">'+esc(t.status||"active")+'</span></td><td><button class="link" data-view-tax="'+esc(t.id)+'">View</button></td></tr>').join(""):'<tr><td colspan="6"><div class="empty">'+icon("users")+'<div>No matching taxpayers. Register a fictional account to get started.</div></div></td></tr>')+'</tbody></table></div></div>';
+}
+function staffPage(){
+ const users=state.users||[];
+ return pageHeader("Personnel & access","Manage staff assignments and authority with role-based controls.")+
+ '<div class="alert" style="margin-bottom:20px"><strong>Access management:</strong> Only the founding Commissioner may change employee roles. An account must be created by its owner before it can receive staff access. Commissioner privileges cannot be granted from this screen.</div>'+
+ '<div class="card card-pad"><div class="section-head"><h2>Registered accounts</h2><span class="pill gray">'+users.length+' shown</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Account name</th><th>Current role</th><th>Joined</th><th>Assign role</th></tr></thead><tbody>'+
+ (users.length?users.map(u=>'<tr><td class="name">'+esc(u.displayName)+'</td><td><span class="pill '+(u.role==="commissioner"?"gold":"gray")+'">'+esc(roleLabel(u.role))+'</span></td><td>'+esc(formatDate(u.createdAt))+'</td><td>'+(u.role==="commissioner"?"Protected":'<select class="input" style="padding:8px;min-height:34px" data-role-uid="'+esc(u.id)+'">'+["citizen","staff","auditor","supervisor"].map(r=>'<option value="'+r+'" '+(r===u.role?"selected":"")+'>'+esc(roleLabel(r))+'</option>').join("")+'</select>')+'</td></tr>').join(""):'<tr><td colspan="4"><div class="empty">No registered accounts found.</div></td></tr>')+'</tbody></table></div></div>';
+}
+function activityPage(){
+ return pageHeader("Agency activity & audit","An append-only operational record of key administrative events.")+'<div class="card card-pad"><div class="section-head"><h2>Operational events</h2><span class="pill gray">Newest first</span></div>'+recentEvents(50)+'</div>';
+}
+function detail(k,v){return '<div class="detail-item"><div class="small">'+esc(k)+'</div><div class="big">'+esc(v)+'</div></div>';}
+function accountPage(){
+ return pageHeader("My account","Your fictional identity and authenticated agency access.")+'<div class="grid-two"><div class="card card-pad"><div class="section-head"><h2>Account information</h2><span class="pill">Authenticated</span></div><div class="detail-grid">'+detail("Registered name",state.me.displayName)+detail("Agency role",roleLabel(state.me.role))+detail("Account created",formatDate(state.me.createdAt))+detail("Access status",state.me.status||"active")+'</div><div class="alert" style="margin-top:20px">Sign in using your registered character name and password. Standard email-based password resets are intentionally not available; account recovery will be handled by authorized agency administrators.</div></div><div class="card card-pad"><h2 style="font-size:15px;margin-bottom:14px">Identity protections</h2><p class="help">Administrative permissions are based on verified Firebase account identity and server-side Firestore roles, never a typed display name. Keep your password private.</p><div style="margin-top:25px"><button class="button secondary" id="accountSignout">'+icon("logout")+' Sign out</button></div></div></div>';
+}
+const modules=[
+ ["Taxpayer registration","users","Active","Identity registry, account profiles and fictional taxpayer records."],
+ ["Personnel administration","shield","Active","Role-controlled employee access and Commissioner management."],
+ ["Tax return processing","file","Generation 2","Multi-step individual and business filings with calculation rules."],
+ ["Tax assessment","receipt","Generation 2","Versioned tax policy, assessments and amended filings."],
+ ["Treasury & accounting","bank","Generation 3","Double-entry simulated financial transactions and reconciliation."],
+ ["Payments & refunds","wallet","Generation 3","Simulated payments, refunds and authorization chains."],
+ ["Examination & audit","search","Generation 4","Case investigation, document requests and determination workflow."],
+ ["Appeals & collections","activity","Generation 4","Administrative appeals, balances, and installment agreements."],
+ ["Simulation engine","layers","Generation 5","Generated fictional taxpayers, businesses, events and workload."],
+ ["Executive intelligence","chart","Generation 6","Agency analytics, reports, controls and advanced administration."]
+];
+function modulesPage(){return pageHeader("Agency divisions","A connected institutional platform, delivered in six planned generations.")+'<div class="module-grid">'+modules.map(m=>'<div class="card module"><div class="module-icon">'+icon(m[1])+'</div><h3>'+esc(m[0])+'</h3><p>'+esc(m[3])+'</p><div class="lock">'+esc(m[2])+'</div></div>').join("")+'</div>';}
+function modal(title,body,onBind){
+ const el=document.createElement("div");el.className="modal-backdrop";el.innerHTML='<section class="modal" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="modal-top"><h2>'+esc(title)+'</h2><button class="icon-button" data-close aria-label="Close">'+icon("close")+'</button></div>'+body+'</section>';document.body.append(el);el.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>el.remove()));el.addEventListener("click",e=>{if(e.target===el)el.remove();});onBind?.(el);return el;
+}
+function newTaxpayer(){
+ modal("Register fictional taxpayer",'<form id="tax-form"><div class="modal-body"><div class="field"><label>Full name or business name</label><input class="input" name="fullName" required minlength="3" maxlength="90" placeholder="Fictional taxpayer name"></div><div class="field"><label>Taxpayer classification</label><select class="input" name="type"><option value="individual">Individual</option><option value="business">Business</option></select></div><div class="field"><label>Administrative region</label><select class="input" name="region"><option>Capital District</option><option>Northern Region</option><option>Southern Region</option><option>Eastern Region</option><option>Western Region</option></select></div><div class="field"><label>Internal notes (optional)</label><textarea class="input" name="notes" rows="3" maxlength="500" placeholder="Fictional record details"></textarea></div><div class="alert">All records in this platform are fictional. Do not enter real tax identifiers or sensitive personal information.</div><div id="tax-error"></div></div><div class="modal-bottom"><button class="button secondary" type="button" data-close>Cancel</button><button class="button" type="submit">Create record</button></div></form>',el=>{
+  el.querySelector("#tax-form").addEventListener("submit",async e=>{
+  e.preventDefault();const form=e.target;const btn=form.querySelector('[type="submit"]');btn.disabled=true;
+  try{const data=Object.fromEntries(new FormData(form));await call("createTaxpayer",data);el.remove();toast("Taxpayer record registered.");await loadPage();}catch(err){el.querySelector("#tax-error").innerHTML='<div class="error">'+esc(authError(err))+'</div>';}finally{btn.disabled=false;}
+  });
+ });
+}
+function viewTaxpayer(id){
+ const t=state.taxpayers.find(x=>x.id===id);if(!t)return;
+ modal("Taxpayer record",'<div class="modal-body"><div class="detail-grid">'+detail("Name",t.fullName)+detail("Taxpayer reference",t.taxpayerNumber||t.id)+detail("Classification",t.type)+detail("Region",t.region)+detail("Status",t.status||"active")+detail("Created",formatDate(t.createdAt))+'</div><div class="alert" style="margin-top:17px">'+esc(t.notes||"No internal notes provided.")+'</div></div><div class="modal-bottom">'+(isCommissioner()&&t.status!=="archived"?'<button class="button danger" id="archiveTax">Archive record</button>':"")+'<button class="button secondary" data-close>Close</button></div>',el=>{
+ el.querySelector("#archiveTax")?.addEventListener("click",async()=>{
+ if(!confirm("Archive this taxpayer record? Archived records remain in the audit history."))return;
+ try{await call("archiveTaxpayer",{id:t.id});el.remove();toast("Taxpayer archived.");await loadPage();}catch(e){toast(authError(e),true);}
+ });
+ });
+}
+function bindPage(){
+ document.getElementById("viewRegistry")?.addEventListener("click",()=>{location.hash="taxpayers";});
+ document.getElementById("viewModules")?.addEventListener("click",()=>{location.hash="modules";});
+ document.getElementById("newTaxpayer")?.addEventListener("click",newTaxpayer);
+ document.getElementById("accountSignout")?.addEventListener("click",()=>logout());
+ document.getElementById("searchTax")?.addEventListener("input",e=>{state.search=e.target.value;document.querySelector("tbody").innerHTML=filteredTaxRows();wireTaxButtons();});
+ wireTaxButtons();
+ document.querySelectorAll("[data-role-uid]").forEach(select=>select.addEventListener("change",async e=>{
+ const uid=e.target.dataset.roleUid,role=e.target.value;select.disabled=true;
+ try{await call("assignRole",{uid,role});toast("Role updated.");await loadPage();}catch(err){toast(authError(err),true);await loadPage();}
+ }));
+}
+function filteredTaxRows(){
+ const q=state.search.toLowerCase();
+ const arr=state.taxpayers.filter(t=>(t.fullName+" "+t.taxpayerNumber+" "+t.region).toLowerCase().includes(q));
+ return arr.length?arr.map(t=>'<tr><td class="name">'+esc(t.fullName)+'</td><td>'+esc(t.taxpayerNumber||t.id)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.region)+'</td><td><span class="pill '+(t.status==="archived"?"gray":"")+'">'+esc(t.status)+'</span></td><td><button class="link" data-view-tax="'+esc(t.id)+'">View</button></td></tr>').join(""):'<tr><td colspan="6"><div class="empty">No matching taxpayers.</div></td></tr>';
+}
+function wireTaxButtons(){document.querySelectorAll("[data-view-tax]").forEach(b=>b.addEventListener("click",()=>viewTaxpayer(b.dataset.viewTax)));}
+async function loadPage(){
+ if(!state.user||!state.me)return;
+ state.loading=true;
+ try{
+  const jobs=[];
+  if(isStaff()){
+   jobs.push(call("getOverview").then(r=>state.overview=r.data));
+   jobs.push(getDocs(query(collection(db,"auditLogs"),orderBy("createdAt","desc"),limit(25))).then(s=>state.events=s.docs.map(d=>({id:d.id,...d.data()}))));
+   if(state.page==="taxpayers")jobs.push(getDocs(query(collection(db,"taxpayers"),orderBy("createdAt","desc"),limit(200))).then(s=>state.taxpayers=s.docs.map(d=>({id:d.id,...d.data()}))));
+   if(state.page==="staff"&&isCommissioner())jobs.push(getDocs(query(collection(db,"users"),orderBy("createdAt","desc"),limit(100))).then(s=>state.users=s.docs.map(d=>({id:d.id,...d.data()}))));
+  }
+  await Promise.all(jobs);
+ }catch(e){toast("Could not load all agency records: "+authError(e),true);}
+ finally{state.loading=false;renderShell();}
+}
+async function enter(){
+ state.page=(location.hash||"#dashboard").slice(1);
+ if(!isStaff()&&!["dashboard","account"].includes(state.page))state.page="dashboard";
+ if(!["dashboard","account","taxpayers","staff","activity","modules"].includes(state.page))state.page="dashboard";
+ renderShell();await loadPage();
+}
+window.addEventListener("hashchange",()=>{if(state.me){state.page=(location.hash||"#dashboard").slice(1);state.menu=false;enter();}});
+authListener(async user=>{
+ if(state.authBusy)return;
+ state.user=user;
+ if(!user){state.me=null;renderAuth();return;}
+ try{
+  state.me=await profile(user.uid);
+  if(!state.me){renderAuth("Your account setup is incomplete. Contact an administrator.");return;}
+  if(state.me.status==="suspended"){await logout();renderAuth("This account is suspended.");return;}
+  await enter();
+ }catch(e){renderAuth(authError(e));}
+});
