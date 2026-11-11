@@ -48,7 +48,7 @@ export function deriveAccount(account){
  const reservedRefundCents=validMoneyCents(account.reservedRefundCents,"Reserved refunds");
  const net=assessedCents-declaredPaymentsCents-directPaymentsCents+refundsDisbursedCents;
  const outstandingCents=Math.max(0,net),creditAvailableCents=Math.max(0,-net);
- if(reservedRefundCents>creditAvailableCents)throw Error("Approved refunds exceed available taxpayer credits.");
+ if(reservedRefundCents>creditAvailableCents)throw Error("Reserved refunds exceed available taxpayer credits.");
  return {...account,assessedCents,declaredPaymentsCents,directPaymentsCents,
   refundsDisbursedCents,reservedRefundCents,outstandingCents,creditAvailableCents,
   refundAvailableCents:creditAvailableCents-reservedRefundCents};
