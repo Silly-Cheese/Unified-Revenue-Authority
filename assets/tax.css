@@ -1,0 +1,67 @@
+/* Generation 2 — tax filing, policy, examiner and assessment interface */
+.tax-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:21px}
+.tax-metric{background:white;border:1px solid var(--line);border-radius:14px;padding:21px;display:flex;flex-direction:column;gap:9px;box-shadow:var(--shadow)}
+.tax-metric small{font-size:11px;color:#718299;font-weight:700}.tax-metric strong{font-size:26px;letter-spacing:-.055em;font-family:"Manrope",sans-serif}.tax-metric span{font-size:11px;color:#91a0b0}
+.tax-toolbar{justify-content:space-between}.tax-toolbar .input:last-child{width:210px;flex:0 1 auto}.tax-mono{font-variant-numeric:tabular-nums;font-weight:750}
+.tax-sub{font-size:11px;line-height:1.65;color:#8594a5;margin-top:4px}
+.tax-status{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:30px;font-size:10px;font-weight:800;background:#eef1f5;color:#637389;white-space:nowrap}
+.tax-status.accepted{background:#e9f6ed;color:#24805a}.tax-status.submitted{background:#e6effa;color:#315b8d}
+.tax-status.information_requested{background:#fff2dd;color:#986b21}.tax-status.rejected{background:#fbe8e8;color:#b34853}.tax-status.draft{background:#eef1f5;color:#637389}
+.tax-empty{text-align:center;padding:52px 20px}.tax-empty-mark{display:grid;place-items:center;width:62px;height:62px;margin:0 auto 17px;border-radius:16px;background:#f4f0e8;color:#a8864f;font-weight:900;font-family:"Manrope",sans-serif;letter-spacing:.03em}
+.tax-empty h3{font-size:16px;margin-bottom:8px}.tax-empty p{font-size:12px;color:#8997a9;line-height:1.65}
+.tax-disclaimer{margin-top:21px;padding:12px;border:1px dashed #d7dce3;border-radius:9px;font-size:11px;color:#8594a4;text-align:center}
+.tax-backline{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:18px}.tax-backline span{font-size:10px;color:#93a1b1;letter-spacing:.1em;font-weight:750}
+.tax-wizard{overflow:hidden}.tax-wizard-head{background:linear-gradient(110deg,#1a314e,#294968);color:white;padding:30px 37px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.tax-wizard-head h1{font-size:24px;letter-spacing:-.04em;margin:8px 0}.tax-wizard-head p{font-size:12px;color:#c8d6e4}
+.tax-year-mark{font-size:49px;color:#ffffff13;font-weight:900;font-family:"Manrope",sans-serif;letter-spacing:-.06em}
+.tax-stepper{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:22px 32px;border-bottom:1px solid var(--line)}
+.tax-step{display:flex;align-items:center;gap:10px;opacity:.6}.tax-step.current,.tax-step.complete{opacity:1}
+.tax-step>span{display:grid;place-items:center;min-width:28px;height:28px;border:1px solid #cbd4df;color:#6c8094;border-radius:50%;font-size:11px;font-weight:800}
+.tax-step.current>span{border-color:#ae8752;background:#ae8752;color:white}
+.tax-step.complete>span{border-color:#dbe9e1;background:#eaf7ee;color:#238257}.tax-step .icon{width:15px;height:15px}
+.tax-step small{font-size:11px;font-weight:700;color:#65758a}
+.tax-form-content{padding:32px 39px 38px;max-width:920px}.tax-section-overline{font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:850;color:#aa8450;margin-bottom:12px}
+.tax-form-content h2{font-size:19px;letter-spacing:-.028em}.tax-section-desc{color:#8796a7;font-size:12px;line-height:1.7;margin:9px 0 24px}
+.tax-input-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:19px}
+.tax-form-field{display:flex;flex-direction:column;gap:9px;min-width:0}
+.tax-form-field>span{font-size:12px;font-weight:700;color:#40566f}.tax-form-field small{font-size:10px;color:#8c9cac}
+.tax-form-field input,.tax-form-field select,.tax-form-field textarea{background:#fff;color:#18304b}
+.tax-dollar{display:flex;align-items:center;overflow:hidden;background:white;border:1px solid #d7dfe8;border-radius:10px}
+.tax-dollar:focus-within{border-color:#b3945e;box-shadow:0 0 0 3px #d4b78127}
+.tax-dollar b{font-size:14px;color:#a0aebe;padding:0 13px 0 16px;font-weight:600}
+.tax-dollar input{min-width:0;flex:1;width:100%;border:0;padding:13px 12px 13px 0;outline:none;font-size:13px;background:transparent}
+.tax-dollar input:focus{outline:0}
+.tax-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.tax-detail-grid>div{border:1px solid #e5eaf0;padding:15px;border-radius:10px;background:#fcfdfe;min-width:0}
+.tax-detail-grid small{font-size:10px;color:#8997a8;display:block;margin-bottom:8px}
+.tax-detail-grid strong{font-size:12px;overflow-wrap:anywhere}
+.tax-info{padding:16px 17px;background:#f6f8fa;border:1px solid #e3e9ef;border-radius:10px;margin-top:22px;color:#62758b;font-size:12px;line-height:1.9}
+.tax-info strong{color:#364d67}
+.tax-wizard-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:19px 35px;border-top:1px solid var(--line);background:#fafbfd}
+.tax-wizard-actions{display:flex;align-items:center;gap:10px}
+.tax-results{border:1px solid #e3e8ee;border-radius:12px;overflow:hidden;margin:20px 0}
+.tax-results-row{display:flex;justify-content:space-between;align-items:center;gap:16px;border-bottom:1px solid #eef0f4;padding:13px 18px;font-size:12px;color:#77879b}
+.tax-results-row strong{color:#243e58;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tax-results-row:nth-child(even){background:#fbfcfe}
+.tax-results-total{display:grid;grid-template-columns:repeat(2,1fr);gap:0;background:#f0f5f8}
+.tax-results-total>div{padding:22px;border-right:1px solid #e1e8ef}.tax-results-total>div:last-child{border:0}
+.tax-results-total small{display:block;font-size:11px;color:#77879b;margin-bottom:7px}
+.tax-results-total strong{font-size:23px;font-family:"Manrope",sans-serif;color:#223a55;letter-spacing:-.04em}
+.tax-review-alert{margin:16px 0 0;padding:14px 16px;border:1px solid #f0dbb8;border-radius:10px;background:#fff8ec;font-size:11px;color:#896c3e;line-height:1.7}
+.tax-review-alert strong{color:#7e5b2b}.tax-review-alert p{margin-top:8px}
+.tax-attest{display:flex;align-items:start;gap:11px;background:#f7f9fc;border:1px solid #e4ebf1;border-radius:11px;padding:17px;margin:18px 0}
+.tax-attest input{width:16px;height:16px;accent-color:#254867;margin-top:2px;flex-shrink:0}
+.tax-attest span{font-size:12px;color:#40546d;line-height:1.7}
+.tax-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
+.tax-policy-card{border:1px solid #e3e8ef;background:#fcfdfe;border-radius:12px;padding:19px;display:flex;flex-direction:column;gap:16px}
+.tax-policy-top{display:flex;align-items:start;justify-content:space-between;gap:12px}.tax-policy-top h3{font-size:14px;line-height:1.45;max-width:270px}
+.tax-policy-meta{display:flex;gap:20px;flex-wrap:wrap}
+.tax-policy-meta small{display:block;font-size:10px;color:#8292a5;margin-bottom:6px}.tax-policy-meta strong{font-size:13px}
+.tax-policy-foot{padding-top:14px;border-top:1px solid #e5ebf0;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tax-policy-foot span{font-size:11px;color:#8b9cad}
+.tax-policy-bracket{display:grid;grid-template-columns:68px minmax(0,1fr) minmax(0,.7fr);gap:9px;align-items:end;border-bottom:1px solid #edf0f4;padding:11px 0}
+.tax-policy-bracket>span{font-size:10px;font-weight:750;color:#9a7a50;padding-bottom:11px}
+.tax-policy-bracket label{font-size:10px;font-weight:700;color:#6a7c90}
+.tax-policy-bracket .input{margin-top:7px;padding:8px;min-height:39px}
+@media(max-width:1020px){.tax-stepper{padding:18px;gap:5px}.tax-step small{font-size:10px}.tax-policy-grid{grid-template-columns:1fr}}
+@media(max-width:700px){.tax-metrics{grid-template-columns:1fr}.tax-input-grid,.tax-detail-grid,.tax-results-total{grid-template-columns:1fr}.tax-stepper{gap:4px}.tax-step{justify-content:center}.tax-step small{display:none}.tax-wizard-head{padding:24px}.tax-wizard-head h1{font-size:20px}.tax-year-mark{font-size:31px}.tax-form-content{padding:25px 20px}.tax-wizard-footer{padding:18px;flex-direction:column;align-items:stretch}.tax-wizard-actions{justify-content:stretch}.tax-wizard-actions>*{flex:1}.tax-policy-bracket{grid-template-columns:1fr 1fr}.tax-policy-bracket>span{grid-column:1/-1;padding:0}.tax-toolbar .input:last-child{width:100%}}

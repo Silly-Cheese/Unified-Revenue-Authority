@@ -1,6 +1,69 @@
 # Unified Revenue Authority (URA)
 
-**Generation 1 of 6 — Institutional Foundation**
+**Generation 2 of 6 — Tax Filing, Calculations & Assessments is implemented in the Generation 2 feature branch.** The repository is being developed through stacked GitHub pull requests; **Generation 1 must be merged before Generation 2**. Firebase/backend deployment and GitHub Pages publication are intentionally deferred at the owner's request.
+
+## Generation 2: what's included
+
+- Individual income tax and business income tax return creation
+- Premium four-step wizard: filing identity, income, deductions/payments, declaration
+- Draft save and reopen; corrected returns can be revised and resubmitted
+- Signed (fictional) submission, read-only accepted returns, and policy snapshots
+- Server-side integer-cent calculations (not client-trusted financial results)
+- Progressive individual tax brackets with filing-status scaling, standard vs. itemized deduction, dependent credits, withholding, estimated payments and nonrefundable credits
+- Business gross receipts, income, cost of goods, payroll, operating expenses, allowances and corporate-rate calculation
+- Examiner docket with discrepancy flags, request-for-information, rejection for correction, acceptance and a required decision rationale
+- Formal assessed tax, refund claims and balances; **no money is collected/disbursed yet** (Treasury arrives in Generation 3)
+- Amendment drafts tied to accepted original filings and amendment assessment deltas
+- Commissioner tax policy settings by year and return type. Policy automatically locks on the first submission, so earlier filings cannot be silently recalculated under changed rules
+- Role-based access: citizens manage their own returns; employees review agency cases; only the Commissioner edits tax policies
+- Deny-by-default Rules for taxReturns, taxAssessments and taxPolicies; all access passes through authenticated Firebase Functions
+- JavaScript syntax and tax-engine test workflow through GitHub Actions (no deployment)
+
+**Simulation boundaries:** all rates and forms are invented for gameplay, not real tax law. Never enter real tax identifiers or sensitive financial data. Form and assessment screens use roleplay-only figures.
+
+### Core tax collections
+
+| Firestore collection | Purpose |
+|---|---|
+| taxReturns | Drafts, submissions, status changes, calculation snapshots, and case decisions |
+| taxAssessments | Approved initial and amended assessments |
+| taxPolicies | Year-specific policy configuration and first-submission locks |
+| taxpayers / auditLogs | Existing Generation 1 linked taxpayer registry and immutable operation events |
+
+Tax data is stored directly as structured Firestore documents. Firebase Storage is **not used**.
+
+### API functions added
+
+- getTaxCatalog, setTaxPolicy
+- previewTaxReturn, saveTaxDraft, submitTaxReturn, listTaxReturns
+- reviewTaxReturn, beginTaxAmendment, listTaxAssessments
+
+All monetary inputs are validated and calculated on the backend. Rates are stored as basis points and amounts as integer cents. Accepting a return creates a simulated assessment record, not a Treasury journal entry.
+
+### Run checks locally (no Firebase deployment required)
+
+Use Node.js 22 from the repository root:
+
+    npm.cmd install --prefix functions
+    npm.cmd test --prefix functions
+    node.exe --check assets/tax.js
+    node.exe --check functions/tax.js
+
+The GitHub workflow also executes these tests for the feature branch and pull requests. Cloud Functions and Firestore integration must still be checked after final deployment. Generation 2 is not live until all code is merged and the backend is deployed.
+
+### Key gameplay rules
+
+- New citizen accounts automatically have their own linked taxpayer record through Generation 1.
+- A taxpayer can have one original return per year and type, plus sequential amendments.
+- Drafts may be edited; submitted returns are locked awaiting an examiner.
+- A staff examiner must give a written rationale for acceptance, correction requests, or rejection.
+- Staff cannot accept their **own personal** taxpayer return.
+- Approval records formal tax liability and refund claims, but no cash movements occur until Generation 3.
+- The currently loaded case lists are capped at 250 records; pagination and large-scale workloads are reserved for later scaling.
+
+---
+
+**Generation 1 of 6 — Institutional Foundation (prerequisite)**
 
 A fictional taxation, treasury and revenue administration roleplay platform. **Not a real government agency. Never use real taxpayer data, SSNs or actual financial transfers.**
 
@@ -84,9 +147,9 @@ The URL becomes active when GitHub completes publication. Firebase Functions and
 
 The web browser cannot directly create, edit or delete user roles, taxpayer records, system configuration or audit events. Callable Functions authenticate the request, check the Firestore role, validate data and record operations. Firestore Rules deny direct writes to those collections. The founding Commissioner cannot be assigned by the public registration form. No database secrets or Administrator credentials belong in this public repository.
 
-## Roadmap: the next five generations
+## Original six-generation roadmap
 
-1. **Generation 2 — Taxation & Filing:** comprehensive individual and business filing forms, configurable tax rules, calculations, and review queues.
+1. **Generation 2 — Taxation & Filing (implemented):** comprehensive individual and business filing forms, configurable tax rules, calculations, and review queues.
 2. **Generation 3 — Treasury & Accounting:** journal-based financial ledgers, assessments, payments, refund authorizations, and reconciliation.
 3. **Generation 4 — Audits & Resolution:** examinations, collections, installment arrangements, correspondence, appeals and determinations.
 4. **Generation 5 — RP Simulation:** generated citizens, fictional businesses, simulated economic activity, case scenarios and controlled time progression.
@@ -94,4 +157,4 @@ The web browser cannot directly create, edit or delete user roles, taxpayer reco
 
 ## Generation 1 limitations
 
-There is no real payment processing, tax calculation engine, audit workflow, password recovery, or file upload in this generation. Tax amounts on the dashboard stay zero until the treasury is implemented. Account names are unique. Real-world tax identifiers and private medical or financial data should never be used. Test with fictional profiles only.
+Generation 1 does not implement filing, tax calculation or review. Generation 2 adds fictional filings, calculations and review, but **not real payments**, audit investigations, password recovery or file uploads. Tax amounts on the dashboard stay zero until the treasury is implemented. Account names are unique. Real-world tax identifiers and private medical or financial data should never be used. Test with fictional profiles only.

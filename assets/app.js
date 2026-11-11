@@ -1,4 +1,5 @@
 import {auth,db} from "./firebase.js";
+import {taxPages,taxPageHTML,taxPageBind,taxLoad} from "./tax.js";
 import {authListener,profile,register,login,logout,call} from "./auth.js";
 import {collection,getDocs,query,orderBy,limit} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
@@ -51,17 +52,17 @@ function renderAuth(err=""){
  }catch(e){renderAuth(authError(e));}finally{state.authBusy=false;}
  });
 }
-const adminNav=[["dashboard","grid","Command center"],["taxpayers","users","Taxpayer registry"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
+const adminNav=[["dashboard","grid","Command center"],["taxpayers","users","Taxpayer registry"],["filings","file","Tax filings"],["processing","search","Return processing"],["assessments","receipt","Assessments"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
 function sidebar(){
- const pages=isStaff()?adminNav:[["dashboard","grid","My overview"],["account","settings","My account"]];
- if(isCommissioner())pages.splice(2,0,["staff","shield","Personnel & roles"]);
+ const pages=isStaff()?[...adminNav]:[["dashboard","grid","My overview"],["filings","file","Tax filings"],["assessments","receipt","Assessments"],["account","settings","My account"]];
+ if(isCommissioner()){pages.splice(2,0,["staff","shield","Personnel & roles"]);pages.splice(6,0,["taxpolicy","settings","Tax policy"]);}
  return '<aside class="sidebar'+(state.menu?" open":"")+'"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED REVENUE<br>AUTHORITY</span></div><div class="sidebar-section">Agency workspace</div><nav class="nav">'+pages.map(p=>'<a href="#'+p[0]+'" class="'+(state.page===p[0]?"active":"")+'">'+icon(p[1])+esc(p[2])+'</a>').join("")+'</nav><div class="sidebar-bottom"><div class="identity"><div class="avatar">'+esc(initials(state.me?.displayName))+'</div><div><div class="who">'+esc(state.me?.displayName)+'</div><div class="role">'+esc(roleLabel(state.me?.role))+'</div></div></div><button class="button ghost" id="logout" style="margin-top:15px;color:#cad8e5;width:100%">'+icon("logout")+' Sign out</button></div></aside>';
 }
 function pageHeader(title,sub,action=""){return '<div class="page-head"><div><div class="eyebrow" style="color:#aa8959">UNIFIED REVENUE AUTHORITY / OPERATIONS</div><h1>'+esc(title)+'</h1><p>'+esc(sub)+'</p></div>'+action+'</div>';}
 function kpi(label,value,foot,ico){return '<div class="kpi"><div class="kpi-label">'+esc(label)+icon(ico)+'</div><div class="kpi-value">'+esc(value)+'</div><div class="kpi-foot">'+esc(foot)+'</div></div>';}
 function renderShell(){
  if(!state.me){renderAuth();return;}
- const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions"}[state.page]||"Operations";
+ const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies"}[state.page]||"Operations";
  app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY · GENERATION 1 / 6</div></main></div></div>';
  document.getElementById("logout").addEventListener("click",async()=>{await logout();state.user=null;state.me=null;state.page="dashboard";renderAuth();});
  document.getElementById("mobile-menu")?.addEventListener("click",()=>{state.menu=!state.menu;renderShell();});
@@ -70,6 +71,7 @@ function renderShell(){
  bindPage();
 }
 function pageHTML(){
+ if(taxPages.includes(state.page))return taxPageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(state.page==="taxpayers"&&isStaff())return taxpayersPage();
  if(state.page==="staff"&&isCommissioner())return staffPage();
  if(state.page==="activity"&&isStaff())return activityPage();
@@ -78,14 +80,14 @@ function pageHTML(){
  return dashboardPage();
 }
 function dashboardPage(){
- if(!isStaff())return pageHeader("Your taxpayer portal","Your personal filing and correspondence workspace.")+'<div class="stat-strip"><div><div class="eyebrow" style="color:#d4b787">CITIZEN SERVICES</div><h2 style="margin-top:8px">Welcome, '+esc(state.me.displayName)+'</h2><p>Your fictional taxpayer account is active. Online returns, payments and correspondence will become available in upcoming generations.</p></div>'+icon("shield")+'</div><div class="kpis">'+kpi("Tax returns","0","Filing workflow arrives in Generation 2","file")+kpi("Outstanding taxes","$0.00","No assessed liability","wallet")+kpi("Refunds","$0.00","No authorized disbursements","receipt")+kpi("Account status","Active","Your account is ready","shield")+'</div><div class="card card-pad"><div class="section-head"><h2>Registered identity</h2><span class="pill">Active</span></div><div class="detail-grid">'+detail("Full name",state.me.displayName)+detail("Taxpayer record",state.me.taxpayerId||"Pending")+detail("Access level","Citizen account")+detail("Account opened",formatDate(state.me.createdAt))+'</div></div>';
+ if(!isStaff())return pageHeader("Your taxpayer portal","Your personal filing and correspondence workspace.")+'<div class="stat-strip"><div><div class="eyebrow" style="color:#d4b787">CITIZEN SERVICES</div><h2 style="margin-top:8px">Welcome, '+esc(state.me.displayName)+'</h2><p>Your fictional taxpayer account is active. Income tax filings are now available under Tax filings. Payments and correspondence expand in future generations.</p></div>'+icon("shield")+'</div><div class="kpis">'+kpi("Tax filings","Active","Open Tax filings to create returns","file")+kpi("Outstanding taxes","$0.00","No assessed liability","wallet")+kpi("Refunds","$0.00","No authorized disbursements","receipt")+kpi("Account status","Active","Your account is ready","shield")+'</div><div class="card card-pad"><div class="section-head"><h2>Registered identity</h2><span class="pill">Active</span></div><div class="detail-grid">'+detail("Full name",state.me.displayName)+detail("Taxpayer record",state.me.taxpayerId||"Pending")+detail("Access level","Citizen account")+detail("Account opened",formatDate(state.me.createdAt))+'</div></div>';
  const summary=state.overview||{};
  return pageHeader("Agency command center","A unified view of operations, people, and the founding revenue administration.")+
- '<div class="stat-strip"><div><div class="eyebrow" style="color:#d4b787">OFFICE OF THE COMMISSIONER</div><h2 style="margin-top:8px">Good to see you, '+esc(state.me.displayName)+'.</h2><p>Generation 1 establishes the agency registry, secure personnel controls, and operational foundations.</p></div><button class="button" id="viewRegistry">'+icon("users")+' Open taxpayer registry</button></div>'+
- '<div class="kpis">'+kpi("Registered taxpayers",String(summary.taxpayers??"—"),"Live agency registry","users")+kpi("Personnel accounts",String(summary.personnel??"—"),"Authorized employees","shield")+kpi("Returns awaiting review","0","Return processing · Gen 2","file")+kpi("Treasury collected","$0.00","Accounting ledger · Gen 3","bank")+'</div>'+
+ '<div class="stat-strip"><div><div class="eyebrow" style="color:#d4b787">OFFICE OF THE COMMISSIONER</div><h2 style="margin-top:8px">Good to see you, '+esc(state.me.displayName)+'.</h2><p>Your revenue administration now includes taxpayer registration, individual and business filings, examination decisions and formal assessments.</p></div><button class="button" id="viewRegistry">'+icon("users")+' Open taxpayer registry</button></div>'+
+ '<div class="kpis">'+kpi("Registered taxpayers",String(summary.taxpayers??"—"),"Live agency registry","users")+kpi("Personnel accounts",String(summary.personnel??"—"),"Authorized employees","shield")+kpi("Returns awaiting review",String(summary.pendingReturns??"—"),"Submitted cases awaiting examination","file")+kpi("Treasury collected","$0.00","Accounting ledger · Gen 3","bank")+'</div>'+
  '<div class="grid-two"><div class="card card-pad"><div class="section-head"><h2>Agency division roadmap</h2><button class="link" id="viewModules">View all divisions →</button></div>'+[
  ["01","Foundational administration","Active"],
- ["02","Tax filing & assessments","Generation 2"],
+ ["02","Tax filing & assessments","Available now"],
  ["03","Treasury & refunds","Generation 3"],
  ["04","Examinations & appeals","Generation 4"]
  ].map(r=>'<div class="activity-row"><div class="activity-dot">'+esc(r[0])+'</div><div style="flex:1"><strong>'+esc(r[1])+'</strong><p>'+esc(r[2])+'</p></div><span class="pill '+(r[2]!=="Active"?"gray":"")+'">'+esc(r[2]==="Active"?"Available":"Planned")+'</span></div>').join("")+'</div><div class="card card-pad"><div class="section-head"><h2>Recent agency activity</h2></div>'+recentEvents(4)+'</div></div>';
@@ -118,8 +120,8 @@ function accountPage(){
 const modules=[
  ["Taxpayer registration","users","Active","Identity registry, account profiles and fictional taxpayer records."],
  ["Personnel administration","shield","Active","Role-controlled employee access and Commissioner management."],
- ["Tax return processing","file","Generation 2","Multi-step individual and business filings with calculation rules."],
- ["Tax assessment","receipt","Generation 2","Versioned tax policy, assessments and amended filings."],
+ ["Tax return processing","file","Active","Multi-step individual and business filings with calculation rules."],
+ ["Tax assessment","receipt","Active","Versioned tax policy, assessments and amended filings."],
  ["Treasury & accounting","bank","Generation 3","Double-entry simulated financial transactions and reconciliation."],
  ["Payments & refunds","wallet","Generation 3","Simulated payments, refunds and authorization chains."],
  ["Examination & audit","search","Generation 4","Case investigation, document requests and determination workflow."],
@@ -149,6 +151,7 @@ function viewTaxpayer(id){
  });
 }
 function bindPage(){
+ taxPageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  document.getElementById("viewRegistry")?.addEventListener("click",()=>{location.hash="taxpayers";});
  document.getElementById("viewModules")?.addEventListener("click",()=>{location.hash="modules";});
  document.getElementById("newTaxpayer")?.addEventListener("click",newTaxpayer);
@@ -177,14 +180,16 @@ async function loadPage(){
    if(state.page==="taxpayers")jobs.push(getDocs(query(collection(db,"taxpayers"),orderBy("createdAt","desc"),limit(200))).then(s=>state.taxpayers=s.docs.map(d=>({id:d.id,...d.data()}))));
    if(state.page==="staff"&&isCommissioner())jobs.push(getDocs(query(collection(db,"users"),orderBy("createdAt","desc"),limit(100))).then(s=>state.users=s.docs.map(d=>({id:d.id,...d.data()}))));
   }
+  if(taxPages.includes(state.page))jobs.push(taxLoad(state));
   await Promise.all(jobs);
  }catch(e){toast("Could not load all agency records: "+authError(e),true);}
  finally{state.loading=false;renderShell();}
 }
 async function enter(){
  state.page=(location.hash||"#dashboard").slice(1);
- if(!isStaff()&&!["dashboard","account"].includes(state.page))state.page="dashboard";
- if(!["dashboard","account","taxpayers","staff","activity","modules"].includes(state.page))state.page="dashboard";
+ if(!isStaff()&&!["dashboard","account","filings","assessments"].includes(state.page))state.page="dashboard";
+ if(!["dashboard","account","taxpayers","staff","activity","modules","filings","processing","assessments","taxpolicy"].includes(state.page))state.page="dashboard";
+ if(state.page==="taxpolicy"&&!isCommissioner())state.page="dashboard";
  renderShell();await loadPage();
 }
 window.addEventListener("hashchange",()=>{if(state.me){state.page=(location.hash||"#dashboard").slice(1);state.menu=false;enter();}});
