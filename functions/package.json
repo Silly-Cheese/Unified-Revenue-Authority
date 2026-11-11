@@ -1,0 +1,16 @@
+{
+  "name": "unified-revenue-authority-functions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "22" },
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test",
+    "bootstrap": "node scripts/bootstrap.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.5.0",
+    "firebase-functions": "^7.0.0"
+  }
+}
