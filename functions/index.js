@@ -96,3 +96,6 @@ export const assignRole=onCall(callable,async request=>{
 });
 // Generation 2 — dedicated fictional tax filing and assessment service.
 export {getTaxCatalog,setTaxPolicy,previewTaxReturn,saveTaxDraft,submitTaxReturn,listTaxReturns,reviewTaxReturn,beginTaxAmendment,listTaxAssessments} from "./tax.js";
+
+// Generation 3: fictional treasury accounting, payments, refunds and reconciliation.
+export {getTreasuryData,getTreasuryOverview,recordTreasuryPayment,requestTreasuryRefund,decideTreasuryRefund,disburseTreasuryRefund,requestTreasuryPlan,decideTreasuryPlan,reconcileTreasury} from "./treasury.js";

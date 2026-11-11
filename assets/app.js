@@ -1,5 +1,6 @@
 import {auth,db} from "./firebase.js";
 import {taxPages,taxPageHTML,taxPageBind,taxLoad} from "./tax.js";
+import {treasuryPages,treasuryPageHTML,treasuryPageBind,treasuryLoad} from "./treasury.js";
 import {authListener,profile,register,login,logout,call} from "./auth.js";
 import {collection,getDocs,query,orderBy,limit} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
@@ -52,17 +53,17 @@ function renderAuth(err=""){
  }catch(e){renderAuth(authError(e));}finally{state.authBusy=false;}
  });
 }
-const adminNav=[["dashboard","grid","Command center"],["taxpayers","users","Taxpayer registry"],["filings","file","Tax filings"],["processing","search","Return processing"],["assessments","receipt","Assessments"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
+const adminNav=[["dashboard","grid","Command center"],["taxpayers","users","Taxpayer registry"],["filings","file","Tax filings"],["processing","search","Return processing"],["assessments","receipt","Assessments"],["treasury","bank","Treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["ledger","chart","General ledger"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
 function sidebar(){
- const pages=isStaff()?[...adminNav]:[["dashboard","grid","My overview"],["filings","file","Tax filings"],["assessments","receipt","Assessments"],["account","settings","My account"]];
- if(isCommissioner()){pages.splice(2,0,["staff","shield","Personnel & roles"]);pages.splice(6,0,["taxpolicy","settings","Tax policy"]);}
+ const pages=isStaff()?[...adminNav]:[["dashboard","grid","My overview"],["filings","file","Tax filings"],["assessments","receipt","Assessments"],["treasury","bank","My treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["account","settings","My account"]];
+ if(isCommissioner()){pages.splice(2,0,["staff","shield","Personnel & roles"]);pages.push(["taxpolicy","settings","Tax policy"]);}
  return '<aside class="sidebar'+(state.menu?" open":"")+'"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED REVENUE<br>AUTHORITY</span></div><div class="sidebar-section">Agency workspace</div><nav class="nav">'+pages.map(p=>'<a href="#'+p[0]+'" class="'+(state.page===p[0]?"active":"")+'">'+icon(p[1])+esc(p[2])+'</a>').join("")+'</nav><div class="sidebar-bottom"><div class="identity"><div class="avatar">'+esc(initials(state.me?.displayName))+'</div><div><div class="who">'+esc(state.me?.displayName)+'</div><div class="role">'+esc(roleLabel(state.me?.role))+'</div></div></div><button class="button ghost" id="logout" style="margin-top:15px;color:#cad8e5;width:100%">'+icon("logout")+' Sign out</button></div></aside>';
 }
 function pageHeader(title,sub,action=""){return '<div class="page-head"><div><div class="eyebrow" style="color:#aa8959">UNIFIED REVENUE AUTHORITY / OPERATIONS</div><h1>'+esc(title)+'</h1><p>'+esc(sub)+'</p></div>'+action+'</div>';}
 function kpi(label,value,foot,ico){return '<div class="kpi"><div class="kpi-label">'+esc(label)+icon(ico)+'</div><div class="kpi-value">'+esc(value)+'</div><div class="kpi-foot">'+esc(foot)+'</div></div>';}
 function renderShell(){
  if(!state.me){renderAuth();return;}
- const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies"}[state.page]||"Operations";
+ const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies",treasury:"Treasury command",payments:"Payments & receipts",refunds:"Refund operations",plans:"Payment arrangements",ledger:"General ledger"}[state.page]||"Operations";
  app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY · GENERATION 1 / 6</div></main></div></div>';
  document.getElementById("logout").addEventListener("click",async()=>{await logout();state.user=null;state.me=null;state.page="dashboard";renderAuth();});
  document.getElementById("mobile-menu")?.addEventListener("click",()=>{state.menu=!state.menu;renderShell();});
@@ -72,6 +73,7 @@ function renderShell(){
 }
 function pageHTML(){
  if(taxPages.includes(state.page))return taxPageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
+ if(treasuryPages.includes(state.page))return treasuryPageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(state.page==="taxpayers"&&isStaff())return taxpayersPage();
  if(state.page==="staff"&&isCommissioner())return staffPage();
  if(state.page==="activity"&&isStaff())return activityPage();
@@ -152,6 +154,7 @@ function viewTaxpayer(id){
 }
 function bindPage(){
  taxPageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
+ treasuryPageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  document.getElementById("viewRegistry")?.addEventListener("click",()=>{location.hash="taxpayers";});
  document.getElementById("viewModules")?.addEventListener("click",()=>{location.hash="modules";});
  document.getElementById("newTaxpayer")?.addEventListener("click",newTaxpayer);
@@ -181,15 +184,17 @@ async function loadPage(){
    if(state.page==="staff"&&isCommissioner())jobs.push(getDocs(query(collection(db,"users"),orderBy("createdAt","desc"),limit(100))).then(s=>state.users=s.docs.map(d=>({id:d.id,...d.data()}))));
   }
   if(taxPages.includes(state.page))jobs.push(taxLoad(state));
+  if(treasuryPages.includes(state.page))jobs.push(treasuryLoad(state));
   await Promise.all(jobs);
  }catch(e){toast("Could not load all agency records: "+authError(e),true);}
  finally{state.loading=false;renderShell();}
 }
 async function enter(){
  state.page=(location.hash||"#dashboard").slice(1);
- if(!isStaff()&&!["dashboard","account","filings","assessments"].includes(state.page))state.page="dashboard";
- if(!["dashboard","account","taxpayers","staff","activity","modules","filings","processing","assessments","taxpolicy"].includes(state.page))state.page="dashboard";
+ if(!isStaff()&&!["dashboard","account","filings","assessments","treasury","payments","refunds","plans"].includes(state.page))state.page="dashboard";
+ if(!["dashboard","account","taxpayers","staff","activity","modules","filings","processing","assessments","taxpolicy","treasury","payments","refunds","plans","ledger"].includes(state.page))state.page="dashboard";
  if(state.page==="taxpolicy"&&!isCommissioner())state.page="dashboard";
+ if(state.page==="ledger"&&!isStaff())state.page="dashboard";
  renderShell();await loadPage();
 }
 window.addEventListener("hashchange",()=>{if(state.me){state.page=(location.hash||"#dashboard").slice(1);state.menu=false;enter();}});

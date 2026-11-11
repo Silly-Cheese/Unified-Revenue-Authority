@@ -1,4 +1,54 @@
-# Unified Revenue Authority (URA)
+# Unified Revenue Authority — Generation 3 / 6
+
+## Treasury & Financial Operations (code complete; not deployed)
+
+Generation 3 adds a transactional, fictional Treasury across income tax cases, with an agency command center, interactive payment desk, refund review, payment-plan workflow, chart of accounts and ledger reconciliation.
+
+**Key gameplay**
+- Accepted returns automatically create and update a Treasury tax account.
+- Declared withholding and estimated payments are posted as simulated prepayments.
+- Staff and taxpayer players may record *fictional* payments up to the remaining assessed balance.
+- Refund requests require available credit. Supervisor/Commissioner authorization reserves the amount; an additional controlled step disburses it.
+- Installment applications generate a 2–24 month schedule, require approval, and track payments.
+- All assessment, remittance and refund transactions post balanced double-entry journals.
+- Account balances are derived server-side; arbitrary direct Firestore updates are denied.
+- Treasury oversight shows aggregate debits, credits, outstanding receivables and control reconciliation.
+
+**No real money, payment processor, government affiliation or real personal data.**
+
+## Deployment status
+
+The owner will deploy *all* Firebase Functions, Firestore Rules and GitHub Pages changes after completing six generations. Do not treat the code as deployed. Nothing in this branch adds Firebase Storage or Firebase Hosting.
+
+### Financial account rules
+
+| Ledger code | Fictional classification |
+| --- | --- |
+| 1000 | Treasury cash asset |
+| 1100 | Tax receivables asset |
+| 2100 | Taxpayer credit liability |
+| 4100 | Assessed tax revenue |
+
+Stored balances use integer cents. Refund reservations prevent over-disbursement; tax amendments retain their differential accounting entries. Journals are append-only through trusted Functions.
+
+## How to validate locally without deployment
+
+```powershell
+npm.cmd install --prefix functions
+npm.cmd test --prefix functions
+node.exe --check assets/treasury.js
+node.exe --check functions/treasury.js
+```
+
+## Generations 4–6 ahead
+
+- **Generation 4:** audit/examination case management, collections, appeals and investigation workflow with formal notices.
+- **Generation 5:** simulated taxpayers, businesses, tax-filing season and workload scenarios.
+- **Generation 6:** polished enterprise reporting, generated documents, administrative intelligence and testing.
+
+---
+
+# Background: Generations 1–2
 
 **Generation 2 of 6 — Tax Filing, Calculations & Assessments is implemented in the Generation 2 feature branch.** The repository is being developed through stacked GitHub pull requests; **Generation 1 must be merged before Generation 2**. Firebase/backend deployment and GitHub Pages publication are intentionally deferred at the owner's request.
 

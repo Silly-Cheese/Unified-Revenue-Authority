@@ -1,6 +1,7 @@
 // Generation 2: fictional taxation, filing, assessments, review and policy administration.
 // The server is authoritative; no browser writes returns or assessments to Firestore.
 import {onCall,HttpsError} from "firebase-functions/v2/https";
+import {postReturnAssessmentInTx} from "./treasury.js";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {TAX_YEARS,defaultPolicy,validatePolicy,normalizeReturnData,calculateReturn,ensureType,ensureYear} from "./lib/tax-engine.js";
 const opts={cors:true};
@@ -206,18 +207,20 @@ export const reviewTaxReturn=onCall(opts,async req=>{
   if(ret.amendedFrom&&(!rootSnap?.exists||rootSnap.data().status!=="accepted"))
     fail("failed-precondition","The source return must be accepted before an amendment can be determined.");
   const decision=action==="accept"?"accepted":action==="request_information"?"information_requested":"rejected";
+  // Before the first write, link accepted cases to the balanced simulated ledger.
+  // This also validates amendments against existing refund reservations and payments.
+  const financialPost=action==="accept"?await postReturnAssessmentInTx(tx,actor,ret,id):null;
   const change={status:decision,decisionReason:reason,reviewerUid:actor.uid,reviewerName:actor.displayName,
    reviewedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()};
   tx.update(ref,change);
   if(action==="accept"){
-   const oldTax=ret.amendedFrom?Number(rootSnap.data().latestAssessedTaxCents??rootSnap.data().calculation?.taxDueCents??0):0;
    const nextTax=ret.calculation.taxDueCents;
    tx.create(assessmentRef,{
     sourceReturnId:id,ownerUid:ret.ownerUid||null,taxpayerId:ret.taxpayerId,
     taxpayerName:ret.taxpayerName,caseNumber:ret.caseNumber,taxYear:ret.taxYear,
-    returnType:ret.returnType,policyVersion:ret.policySnapshot.version,
+    returnType:ret.returnType,policyVersion:ret.policySnapshot.version,treasuryAccountId:financialPost.accountId,
     taxDueCents:nextTax,refundClaimCents:ret.calculation.refundCents,
-    balanceCents:ret.calculation.balanceCents,deltaTaxCents:nextTax-oldTax,
+    balanceCents:ret.calculation.balanceCents,deltaTaxCents:financialPost.deltaTaxCents,
     adjustmentKind:ret.amendedFrom?"amendment":"initial",
     createdBy:actor.uid,createdAt:FieldValue.serverTimestamp()
    });

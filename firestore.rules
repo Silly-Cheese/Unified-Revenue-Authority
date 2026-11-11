@@ -38,6 +38,15 @@ service cloud.firestore {
   match /taxPolicies/{id} {
    allow read, write: if false;
   }
+  // Generation 3: financial records are server-only, including accounting charts.
+  match /treasuryAccounts/{id} { allow read, write: if false; }
+  match /treasuryJournals/{id} { allow read, write: if false; }
+  match /treasuryReceipts/{id} { allow read, write: if false; }
+  match /treasuryRefunds/{id} { allow read, write: if false; }
+  match /treasuryPlans/{id} { allow read, write: if false; }
+  match /treasuryChart/{id} { allow read, write: if false; }
+  match /treasuryControl/{id} { allow read, write: if false; }
+  match /treasuryReconciliations/{id} { allow read, write: if false; }
   match /system/{id} {
    allow read, write: if false;
   }
