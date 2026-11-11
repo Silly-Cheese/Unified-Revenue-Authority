@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
  ECONOMIES,FILING_MODES,SCENARIOS,makeRandom,simulationDate,advanceDate,
- buildNpc,economicEvents,validateSeed
+ buildNpc,economicEvents,validateSeed,scenarioCaseNumber
 } from "../lib/simulation-engine.js";
 
 test("simulated taxpayer generator is deterministic for a world seed",()=>{
@@ -56,4 +56,15 @@ test("economies, filing modes and scenarios have controlled configurations",()=>
  assert.throws(()=>buildNpc({serial:1,type:"individual",year:1900}));
  assert.throws(()=>validateSeed(-1));
  assert.ok(makeRandom(1)()<1);
+});
+
+
+test("scenario references distinguish individual NPCs and case types",()=>{
+ const one="ABCDEFGHIJKLMNOPQRST",two="UVWXYZABCDEFGHIJKLMN";
+ const first=scenarioCaseNumber("audit",2026,one);
+ const second=scenarioCaseNumber("audit",2026,two);
+ assert.notEqual(first,second);
+ assert.notEqual(first,scenarioCaseNumber("collection",2026,one));
+ assert.match(first,/^URA-AUD-2026-[A-Z0-9]{12}$/);
+ assert.throws(()=>scenarioCaseNumber("unknown",2026,one));
 });

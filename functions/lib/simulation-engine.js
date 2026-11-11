@@ -90,6 +90,13 @@ export function buildNpc({serial,type,year,economy="steady",mode="standard",seed
  return {name,region,industry,type,taxYear:year,data,calculation,
   scenarioMode:mode,economy,simulated:true};
 }
+export function scenarioCaseNumber(kind,year,taxpayerId){
+ const codes={audit:"AUD",appeal:"APL",collection:"COL"};
+ if(!codes[kind]||!Number.isInteger(year)||year<2025||year>2035||
+    typeof taxpayerId!=="string"||!/^[A-Za-z0-9]{20}$/.test(taxpayerId))
+  throw Error("Invalid case number source.");
+ return "URA-"+codes[kind]+"-"+year+"-"+taxpayerId.slice(0,12).toUpperCase();
+}
 export function economicEvents({fromDate,toDate,days,economy,seed=123,sequence=0}){
  simulationDate(fromDate);simulationDate(toDate);
  if(!ECONOMIES.includes(economy))throw Error("Invalid fictional economy.");

@@ -4,7 +4,7 @@ import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {defaultPolicy,validatePolicy} from "./lib/tax-engine.js";
 import {deriveAccount} from "./lib/treasury-engine.js";
-import {ECONOMIES,FILING_MODES,SCENARIOS,simulationDate,advanceDate,validateSeed,buildNpc,economicEvents} from "./lib/simulation-engine.js";
+import {ECONOMIES,FILING_MODES,SCENARIOS,simulationDate,advanceDate,validateSeed,buildNpc,economicEvents,scenarioCaseNumber} from "./lib/simulation-engine.js";
 
 const database=()=>getFirestore();
 const opts={cors:true};
@@ -276,8 +276,7 @@ export const runSimulationScenario=onCall(opts,async req=>{
      simulated:true,simulationRunId:runRef.id,createdAt:FieldValue.serverTimestamp(),
      requestedAt:FieldValue.serverTimestamp()});
    }else{
-    const caseNumber="URA-"+({audit:"AUD",collection:"COL",appeal:"APL"})[kind]+
-     "-"+acct.taxYear+"-"+ref.id.slice(-8).toUpperCase();
+    const caseNumber=scenarioCaseNumber(kind,acct.taxYear,acct.taxpayerId);
     const description=kind==="audit"?
       "Synthetic examination opened following automated review of a fictional taxpayer return.":
      kind==="collection"?
