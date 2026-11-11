@@ -96,7 +96,7 @@ export function simulationPageHTML(s,h){
  const data=model||{state:{initialized:false,currentDate:"2026-11-01",economy:"steady",seed:73011},metrics:{taxpayers:0,returns:0},events:[],population:[],runs:[]};
  const config=data.state||{},ready=Boolean(config.initialized);
  return h.pageHeader("National simulation command","Operate a persistent, fictional taxpayer economy and generate casework across the Unified Revenue Authority.")+
- '<div class="sim-hero"><div class="sim-hero-copy"><div class="sim-eyebrow">UNITED REVENUE AUTHORITY / SIMULATION OPERATIONS</div>'+
+ '<div class="sim-hero"><div class="sim-hero-copy"><div class="sim-eyebrow">UNIFIED REVENUE AUTHORITY / SIMULATION OPERATIONS</div>'+
  '<h2>An entire nation, inside your agency.</h2><p>Run tax seasons, build a fictional population, and generate institutional workloads that connect directly to filing, examinations, Treasury, and appeals.</p>'+
  '<div class="sim-hero-meta"><span class="sim-dot"></span> '+(ready?"Simulation initialized":"Awaiting initial setup")+
  ' <span class="sim-divider">•</span> '+E(seasons[config.economy]?.[0]||"Stable economy")+'</div></div>'+
