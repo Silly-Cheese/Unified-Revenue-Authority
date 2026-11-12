@@ -3,6 +3,7 @@ import {taxPages,taxPageHTML,taxPageBind,taxLoad} from "./tax.js";
 import {treasuryPages,treasuryPageHTML,treasuryPageBind,treasuryLoad} from "./treasury.js";
 import {casePages,casePageHTML,casePageBind,caseLoad} from "./cases.js";
 import {simulationPages,simulationPageHTML,simulationPageBind,simulationLoad} from "./simulation.js";
+import {enterprisePages,enterprisePageHTML,enterprisePageBind,enterpriseLoad} from "./enterprise.js";
 import {authListener,profile,register,login,logout,call} from "./auth.js";
 import {collection,getDocs,query,orderBy,limit} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
@@ -55,20 +56,25 @@ function renderAuth(err=""){
  }catch(e){renderAuth(authError(e));}finally{state.authBusy=false;}
  });
 }
-const adminNav=[["dashboard","grid","Command center"],["taxpayers","users","Taxpayer registry"],["filings","file","Tax filings"],["processing","search","Return processing"],["assessments","receipt","Assessments"],["treasury","bank","Treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["ledger","chart","General ledger"],["examinations","search","Examinations"],["appeals","file","Administrative appeals"],["collections","wallet","Collections"],["investigations","shield","Investigations"],["simulation","layers","Simulation command"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
-function sidebar(){
- const pages=isStaff()?[...adminNav]:[["dashboard","grid","My overview"],["filings","file","Tax filings"],["assessments","receipt","Assessments"],["treasury","bank","My treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["appeals","file","My appeals"],["account","settings","My account"]];
+const adminNav=[["dashboard","grid","Command center"],["executive","chart","Executive intelligence"],["registry","users","Enterprise registry"],["taxpayers","users","Taxpayer registry"],["filings","file","Tax filings"],["processing","search","Return processing"],["assessments","receipt","Assessments"],["treasury","bank","Treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["ledger","chart","General ledger"],["examinations","search","Examinations"],["appeals","file","Administrative appeals"],["collections","wallet","Collections"],["investigations","shield","Investigations"],["simulation","layers","Simulation command"],["documents","file","Document Studio"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
+function visiblePages(){
+ const pages=isStaff()?[...adminNav]:[["dashboard","grid","My overview"],["filings","file","Tax filings"],["assessments","receipt","Assessments"],["treasury","bank","My treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["appeals","file","My appeals"],["dossier","users","My tax dossier"],["documents","file","Document Studio"],["account","settings","My account"]];
  if(isCommissioner()){pages.splice(2,0,["staff","shield","Personnel & roles"]);pages.push(["taxpolicy","settings","Tax policy"]);}
  if(state.me?.role==="staff"){const i=pages.findIndex(p=>p[0]==="investigations");if(i!==-1)pages.splice(i,1);}
+ return pages;
+}
+function sidebar(){
+ const pages=visiblePages();
  return '<aside class="sidebar'+(state.menu?" open":"")+'"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED REVENUE<br>AUTHORITY</span></div><div class="sidebar-section">Agency workspace</div><nav class="nav">'+pages.map(p=>'<a href="#'+p[0]+'" class="'+(state.page===p[0]?"active":"")+'">'+icon(p[1])+esc(p[2])+'</a>').join("")+'</nav><div class="sidebar-bottom"><div class="identity"><div class="avatar">'+esc(initials(state.me?.displayName))+'</div><div><div class="who">'+esc(state.me?.displayName)+'</div><div class="role">'+esc(roleLabel(state.me?.role))+'</div></div></div><button class="button ghost" id="logout" style="margin-top:15px;color:#cad8e5;width:100%">'+icon("logout")+' Sign out</button></div></aside>';
 }
 function pageHeader(title,sub,action=""){return '<div class="page-head"><div><div class="eyebrow" style="color:#aa8959">UNIFIED REVENUE AUTHORITY / OPERATIONS</div><h1>'+esc(title)+'</h1><p>'+esc(sub)+'</p></div>'+action+'</div>';}
 function kpi(label,value,foot,ico){return '<div class="kpi"><div class="kpi-label">'+esc(label)+icon(ico)+'</div><div class="kpi-value">'+esc(value)+'</div><div class="kpi-foot">'+esc(foot)+'</div></div>';}
 function renderShell(){
  if(!state.me){renderAuth();return;}
- const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies",treasury:"Treasury command",payments:"Payments & receipts",refunds:"Refund operations",plans:"Payment arrangements",ledger:"General ledger",examinations:"Examinations & audits",appeals:"Administrative appeals",collections:"Revenue collections",investigations:"Special investigations",simulation:"Simulation command"}[state.page]||"Operations";
- app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY · GENERATION 1 / 6</div></main></div></div>';
+ const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies",treasury:"Treasury command",payments:"Payments & receipts",refunds:"Refund operations",plans:"Payment arrangements",ledger:"General ledger",examinations:"Examinations & audits",appeals:"Administrative appeals",collections:"Revenue collections",investigations:"Special investigations",simulation:"Simulation command",executive:"Executive intelligence",registry:"Enterprise registry",dossier:"Taxpayer dossier",documents:"Document Studio"}[state.page]||"Operations";
+ app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><button class="e-global-find" id="global-search" type="button" aria-label="Find a module (Control K)">'+icon("search")+' <span class="label">Find a module</span><kbd>Ctrl K</kbd></button><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY · GENERATION 6 / 6</div></main></div></div>';
  document.getElementById("logout").addEventListener("click",async()=>{await logout();state.user=null;state.me=null;state.page="dashboard";renderAuth();});
+ document.getElementById("global-search")?.addEventListener("click",showCommandPalette);
  document.getElementById("mobile-menu")?.addEventListener("click",()=>{state.menu=!state.menu;renderShell();});
  document.getElementById("shade")?.addEventListener("click",()=>{state.menu=false;renderShell();});
  document.querySelectorAll(".nav a").forEach(a=>a.addEventListener("click",()=>{state.menu=false;}));
@@ -79,6 +85,7 @@ function pageHTML(){
  if(treasuryPages.includes(state.page))return treasuryPageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(casePages.includes(state.page))return casePageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(simulationPages.includes(state.page))return simulationPageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
+ if(enterprisePages.includes(state.page))return enterprisePageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(state.page==="taxpayers"&&isStaff())return taxpayersPage();
  if(state.page==="staff"&&isCommissioner())return staffPage();
  if(state.page==="activity"&&isStaff())return activityPage();
@@ -135,7 +142,7 @@ const modules=[
  ["Examination & audit","search","Active","Case investigation, document requests and determination workflow."],
  ["Appeals & collections","activity","Active","Administrative appeals, balances, and installment agreements."],
  ["Simulation engine","layers","Active","Generated fictional taxpayers, businesses, events and workload."],
- ["Executive intelligence","chart","Generation 6","Agency analytics, reports, controls and advanced administration."]
+ ["Executive intelligence","chart","Active","Agency analytics, reports, controls and advanced administration."]
 ];
 function modulesPage(){return pageHeader("Agency divisions","A connected institutional platform, delivered in six planned generations.")+'<div class="module-grid">'+modules.map(m=>'<div class="card module"><div class="module-icon">'+icon(m[1])+'</div><h3>'+esc(m[0])+'</h3><p>'+esc(m[3])+'</p><div class="lock">'+esc(m[2])+'</div></div>').join("")+'</div>';}
 function modal(title,body,onBind){
@@ -163,6 +170,7 @@ function bindPage(){
  treasuryPageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  casePageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  simulationPageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
+ enterprisePageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  document.getElementById("viewRegistry")?.addEventListener("click",()=>{location.hash="taxpayers";});
  document.getElementById("viewModules")?.addEventListener("click",()=>{location.hash="modules";});
  document.getElementById("newTaxpayer")?.addEventListener("click",newTaxpayer);
@@ -195,20 +203,61 @@ async function loadPage(){
   if(treasuryPages.includes(state.page))jobs.push(treasuryLoad(state));
   if(casePages.includes(state.page))jobs.push(caseLoad(state));
   if(simulationPages.includes(state.page))jobs.push(simulationLoad(state));
+  if(enterprisePages.includes(state.page))jobs.push(enterpriseLoad(state));
   await Promise.all(jobs);
  }catch(e){toast("Could not load all agency records: "+authError(e),true);}
  finally{state.loading=false;renderShell();}
 }
 async function enter(){
  state.page=(location.hash||"#dashboard").slice(1);
- if(!isStaff()&&!["dashboard","account","filings","assessments","treasury","payments","refunds","plans","appeals"].includes(state.page))state.page="dashboard";
- if(!["dashboard","account","taxpayers","staff","activity","modules","filings","processing","assessments","taxpolicy","treasury","payments","refunds","plans","ledger","examinations","appeals","collections","investigations","simulation"].includes(state.page))state.page="dashboard";
+ if(!isStaff()&&!["dashboard","account","filings","assessments","treasury","payments","refunds","plans","appeals","dossier","documents"].includes(state.page))state.page="dashboard";
+ if(!["dashboard","account","taxpayers","staff","activity","modules","filings","processing","assessments","taxpolicy","treasury","payments","refunds","plans","ledger","examinations","appeals","collections","investigations","simulation","executive","registry","dossier","documents"].includes(state.page))state.page="dashboard";
  if(state.page==="taxpolicy"&&!isCommissioner())state.page="dashboard";
  if(state.page==="ledger"&&!isStaff())state.page="dashboard";
+ if(["executive","registry"].includes(state.page)&&!isStaff())state.page="dashboard";
  if(["examinations","collections","investigations"].includes(state.page)&&!isStaff())state.page="dashboard";
  if(state.page==="investigations"&&!["auditor","supervisor","commissioner"].includes(state.me?.role))state.page="dashboard";
  renderShell();await loadPage();
 }
+
+function showCommandPalette(){
+ if(!state.me)return;
+ document.getElementById("global-command")?.remove();
+ const overlay=document.createElement("div");
+ overlay.id="global-command";
+ overlay.className="e-command-backdrop";
+ overlay.innerHTML='<section class="e-command" role="dialog" aria-modal="true" aria-label="Find a URA module">'+
+ '<div class="e-command-head">'+icon("search")+'<input id="command-input" type="search" placeholder="Search agency departments or actions" autocomplete="off" aria-label="Search modules">'+
+ '<button type="button" id="command-close" aria-label="Close command menu">ESC</button></div>'+
+ '<div class="e-command-items" id="command-items"></div>'+
+ '<div class="e-command-foot">Select a department to navigate · Ctrl / ⌘ + K to open · Escape to close</div></section>';
+ document.body.append(overlay);
+ const inp=overlay.querySelector("#command-input"),results=overlay.querySelector("#command-items");
+ const close=()=>overlay.remove();
+ const nav=(key)=>{close();location.hash="#"+key;};
+ function render(filter=""){
+  const words=filter.toLowerCase().trim();
+  const matches=visiblePages().filter(p=>(p[2]+" "+p[0]).toLowerCase().includes(words));
+  results.innerHTML=matches.length?matches.map(p=>
+   '<button type="button" data-command="'+esc(p[0])+'">'+icon(p[1])+
+   '<span>'+esc(p[2])+'<small>Agency module · '+esc(p[0])+'</small></span></button>').join(""):
+   '<div class="empty">No modules match your search. Try a department name.</div>';
+  results.querySelectorAll("[data-command]").forEach(button=>button.addEventListener("click",()=>nav(button.dataset.command)));
+ }
+ render();inp.focus();
+ inp.addEventListener("input",()=>render(inp.value));
+ inp.addEventListener("keydown",ev=>{if(ev.key==="Enter"){ev.preventDefault();const first=results.querySelector("[data-command]");if(first)nav(first.dataset.command);}});
+ overlay.querySelector("#command-close").addEventListener("click",close);
+ overlay.addEventListener("click",ev=>{if(ev.target===overlay)close();});
+}
+document.addEventListener("keydown",ev=>{
+ if((ev.ctrlKey||ev.metaKey)&&String(ev.key).toLowerCase()==="k"){
+  ev.preventDefault();
+  if(document.getElementById("global-command"))document.getElementById("command-input")?.focus();
+  else showCommandPalette();
+ }else if(ev.key==="Escape"){document.getElementById("global-command")?.remove();}
+});
+
 window.addEventListener("hashchange",()=>{if(state.me){state.page=(location.hash||"#dashboard").slice(1);state.menu=false;enter();}});
 authListener(async user=>{
  if(state.authBusy)return;
