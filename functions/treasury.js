@@ -71,7 +71,8 @@ function saveAccount(tx,ref,old,next){
 }
 function payableFields(ret){
  return {taxpayerId:ret.taxpayerId,taxpayerName:ret.taxpayerName,
-  ownerUid:ret.ownerUid||null,taxYear:ret.taxYear,returnType:ret.returnType};
+  ownerUid:ret.ownerUid||null,simulated:ret.simulationOrigin==="ura_engine"||ret.simulated===true,
+  taxYear:ret.taxYear,returnType:ret.returnType};
 }
 // Used by the Generation 2 examiner transaction. All reads happen before writes.
 // Accepted filings are posted once, and later amendments post only the difference.

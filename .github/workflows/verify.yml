@@ -24,12 +24,19 @@ jobs:
           node --check assets/tax.js
           node --check assets/treasury.js
           node --check assets/cases.js
+          node --check assets/simulation.js
+          node --check assets/documents.js
+          node --check assets/enterprise.js
           node --check assets/auth.js
           node --check assets/firebase.js
           node --check functions/index.js
           node --check functions/tax.js
           node --check functions/treasury.js
           node --check functions/cases.js
+          node --check functions/simulation.js
+          node --check functions/enterprise.js
+          node --check functions/lib/reporting.js
+          node --check functions/lib/simulation-engine.js
           node --check functions/lib/case-workflow.js
           node --check functions/lib/treasury-engine.js
           node --check functions/lib/tax-engine.js

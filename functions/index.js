@@ -103,3 +103,9 @@ export {getTreasuryData,getTreasuryOverview,recordTreasuryPayment,requestTreasur
 // Generation 4: agency cases, audit workflow, collections, appeals and investigations.
 export {listAgencyCases,getAgencyCase,createAgencyCase,addAgencyCaseNote,assignAgencyCase,advanceAgencyCase,issueAgencyNotice,proposeAgencyAdjustment,determineAgencyAdjustment,listAgencyOfficers} from "./cases.js";
 export {cancelTreasuryRefund} from "./treasury.js";
+
+// Generation 5: Commissioner-controlled fictional population, economic calendar and agency workloads.
+export {getSimulationOverview,initializeSimulation,configureSimulation,generateSimulationPopulation,advanceSimulationClock,runSimulationScenario} from "./simulation.js";
+
+// Generation 6 — enterprise reporting, issued memoranda and unified taxpayer dossiers.
+export {getExecutiveReport,issueExecutiveReport,listExecutiveReports,getIssuedExecutiveReport,listAgencyRegistryPage,getTaxpayerDossier} from "./enterprise.js";

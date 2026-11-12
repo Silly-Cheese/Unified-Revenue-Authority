@@ -53,6 +53,11 @@ service cloud.firestore {
   match /agencyCaseEvents/{id} { allow read, write: if false; }
   match /agencyNotices/{id} { allow read, write: if false; }
   match /agencyCaseAdjustments/{id} { allow read, write: if false; }
+  // Generation 5 uses callable Functions exclusively, including simulation state.
+  match /simulationRuns/{id} { allow read, write: if false; }
+  match /simulationEvents/{id} { allow read, write: if false; }
+  // Generation 6 immutable executive reporting records are server-controlled.
+  match /executiveReports/{id} { allow read, write: if false; }
   match /system/{id} {
    allow read, write: if false;
   }
