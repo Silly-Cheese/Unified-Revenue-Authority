@@ -27,6 +27,26 @@ service cloud.firestore {
    allow get, list: if personnel();
    allow create, update, delete: if false;
   }
+  // Generation 2 uses Functions exclusively for filings, assessments and tax policy.
+  // No direct client reads or writes: results are filtered by account role and ownership.
+  match /taxReturns/{id} {
+   allow read, write: if false;
+  }
+  match /taxAssessments/{id} {
+   allow read, write: if false;
+  }
+  match /taxPolicies/{id} {
+   allow read, write: if false;
+  }
+  // Generation 3: financial records are server-only, including accounting charts.
+  match /treasuryAccounts/{id} { allow read, write: if false; }
+  match /treasuryJournals/{id} { allow read, write: if false; }
+  match /treasuryReceipts/{id} { allow read, write: if false; }
+  match /treasuryRefunds/{id} { allow read, write: if false; }
+  match /treasuryPlans/{id} { allow read, write: if false; }
+  match /treasuryChart/{id} { allow read, write: if false; }
+  match /treasuryControl/{id} { allow read, write: if false; }
+  match /treasuryReconciliations/{id} { allow read, write: if false; }
   match /system/{id} {
    allow read, write: if false;
   }

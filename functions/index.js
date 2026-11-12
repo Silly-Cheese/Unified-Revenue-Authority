@@ -45,11 +45,12 @@ export const registerProfile=onCall(callable,async request=>{
 });
 export const getOverview=onCall(callable,async request=>{
  const person=await actor(request);permit(person,["commissioner","supervisor","staff","auditor"]);
- const [taxpayers,personnel]=await Promise.all([
+ const [taxpayers,personnel,pendingReturns]=await Promise.all([
   db.collection("taxpayers").count().get(),
-  db.collection("users").where("role","in",["commissioner","supervisor","staff","auditor"]).count().get()
+  db.collection("users").where("role","in",["commissioner","supervisor","staff","auditor"]).count().get(),
+  db.collection("taxReturns").where("status","==","submitted").count().get()
  ]);
- return {taxpayers:taxpayers.data().count,personnel:personnel.data().count,generatedAt:new Date().toISOString()};
+ return {taxpayers:taxpayers.data().count,personnel:personnel.data().count,pendingReturns:pendingReturns.data().count,generatedAt:new Date().toISOString()};
 });
 export const createTaxpayer=onCall(callable,async request=>{
  const person=await actor(request);permit(person,["commissioner","supervisor","staff"]);
@@ -93,3 +94,8 @@ export const assignRole=onCall(callable,async request=>{
  });
  return {ok:true};
 });
+// Generation 2 — dedicated fictional tax filing and assessment service.
+export {getTaxCatalog,setTaxPolicy,previewTaxReturn,saveTaxDraft,submitTaxReturn,listTaxReturns,reviewTaxReturn,beginTaxAmendment,listTaxAssessments} from "./tax.js";
+
+// Generation 3: fictional treasury accounting, payments, refunds and reconciliation.
+export {getTreasuryData,getTreasuryOverview,recordTreasuryPayment,requestTreasuryRefund,decideTreasuryRefund,disburseTreasuryRefund,requestTreasuryPlan,decideTreasuryPlan,reconcileTreasury} from "./treasury.js";
