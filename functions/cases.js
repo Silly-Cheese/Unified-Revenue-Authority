@@ -7,7 +7,7 @@ import {deriveAccount} from "./lib/treasury-engine.js";
 import {CASE_TYPES,canAdvance,initialCaseStatus,canCitizenReadCase} from "./lib/case-workflow.js";
 
 const db=()=>getFirestore();
-const opts={cors:true};
+const opts={cors:true,invoker:"public"};
 const STAFF=["commissioner","supervisor","staff","auditor"];
 const SUPERVISORS=["commissioner","supervisor"];
 const AUDITORS=["commissioner","supervisor","auditor"];

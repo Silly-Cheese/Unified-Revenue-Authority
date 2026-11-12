@@ -9,7 +9,7 @@ import {
 } from "./lib/treasury-engine.js";
 
 const db=()=>getFirestore();
-const opts={cors:true};
+const opts={cors:true,invoker:"public"};
 const reviewerRoles=["commissioner","supervisor"];
 const staffRoles=["commissioner","supervisor","staff","auditor"];
 const officeRoles=["commissioner","supervisor","staff"];

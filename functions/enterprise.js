@@ -2,10 +2,11 @@
 // paginated taxpayer registry and unified taxpayer financial dossiers.
 // Source data remains fictional and is never publicly readable from Firestore.
 import {onCall,HttpsError} from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {YEARS,SAMPLE_LIMIT,reportYear,summarizeAccounts,statusCounts,caseTypeCounts,fiscalTrend,coverage,validateReportDraft} from "./lib/reporting.js";
 
-const opts={cors:true};
+const opts={cors:true,invoker:"public"};
 const db=()=>getFirestore();
 const STAFF=["commissioner","supervisor","staff","auditor"];
 const EXAMINER=["commissioner","supervisor","auditor"];
@@ -91,7 +92,19 @@ async function buildExecutiveReport(year){
 
 export const getExecutiveReport=onCall(opts,async req=>{
  const person=await currentUser(req);staff(person);
- return await buildExecutiveReport(req.data?.taxYear??2026);
+ try{
+  return await buildExecutiveReport(req.data?.taxYear??2026);
+ }catch(err){
+  if(err instanceof HttpsError)throw err;
+  // Detailed diagnostics stay in server-side logs, never the browser or a public report.
+  logger.error("URA executive reporting failed",{
+   taxYear:req.data?.taxYear??2026,
+   code:String(err?.code||"unknown"),
+   message:String(err?.message||"unknown error"),
+   stack:String(err?.stack||"").slice(0,3500)
+  });
+  throw new HttpsError("internal","Unable to prepare fiscal report. Check getExecutiveReport server logs.");
+ }
 });
 export const issueExecutiveReport=onCall(opts,async req=>{
  const person=await currentUser(req);supervisor(person);

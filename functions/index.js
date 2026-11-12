@@ -19,7 +19,7 @@ function log(action,detail,person,targetId=null){
  return {action,detail,actorUid:person.uid||"system",actorName:person.displayName||"System",targetId,
   createdAt:FieldValue.serverTimestamp()};
 }
-const callable={cors:true};
+const callable={cors:true,invoker:"public"};
 export const registerProfile=onCall(callable,async request=>{
  const uid=signed(request);
  const name=cleanName(request.data?.name);

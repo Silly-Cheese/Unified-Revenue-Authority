@@ -4,7 +4,7 @@ import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {postReturnAssessmentInTx} from "./treasury.js";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {TAX_YEARS,defaultPolicy,validatePolicy,normalizeReturnData,calculateReturn,ensureType,ensureYear} from "./lib/tax-engine.js";
-const opts={cors:true};
+const opts={cors:true,invoker:"public"};
 function db(){return getFirestore();}
 function fail(code,message){throw new HttpsError(code,message);}
 function requireAuth(req){if(!req.auth?.uid)fail("unauthenticated","Please sign in.");return req.auth.uid;}

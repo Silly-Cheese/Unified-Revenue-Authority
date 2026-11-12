@@ -7,7 +7,7 @@ import {deriveAccount} from "./lib/treasury-engine.js";
 import {ECONOMIES,FILING_MODES,SCENARIOS,simulationDate,advanceDate,validateSeed,buildNpc,economicEvents,scenarioCaseNumber} from "./lib/simulation-engine.js";
 
 const database=()=>getFirestore();
-const opts={cors:true};
+const opts={cors:true,invoker:"public"};
 const STAFF=["commissioner","supervisor","staff","auditor"];
 const SIM_REF="simulation";
 const STATE_COLLECTION="system";
