@@ -1,4 +1,87 @@
-# Unified Revenue Authority — Generation 3 / 6
+# Unified Revenue Authority — Generation 4 of 6
+
+**Status:** Source code for Generations 1–4 is assembled in GitHub. No Firebase Functions, Firestore Rules or GitHub Pages deployment has been performed. The owner will complete deployment after all six generations.
+
+## Generation 4: Compliance Operations & Administrative Casework
+
+The Unified Revenue Authority now contains a case-management system for:
+- **Examinations & audits:** open examination files, assign officers, request information, document findings, propose fictional tax reassessments and issue determinations.
+- **Administrative appeals:** citizen appeal submissions against assessed tax accounts, evidence statements, correspondence, examiner handling and formal decisions.
+- **Collections:** collection case files for accounts with outstanding tax, official-looking RP correspondence, payment-plan follow-ups and case resolutions after payment clearance.
+- **Special investigations:** restricted internal investigations available only to auditor/supervisor/commissioner roles; simulated evidence logs and referrals, not actual criminal investigations.
+
+### Available administrative actions
+
+| Action | Eligibility | Result |
+| --- | --- | --- |
+| Open audit, collection or investigation | Authorized staff; investigations require auditor/supervisor/Commissioner | Agency case with reference ID and timeline |
+| File taxpayer appeal | Citizen for their own assessed account; staff can create for accounts they manage | Formal submitted appeal |
+| Assign staff officer | Supervisor/Commissioner | Protected case assignment and event |
+| Record case correspondence | Staff or citizen in own active appeal | Timestamped event with visibility control |
+| Progress case stage | Authorized staff | Validated transition with reasoning |
+| Issue formal notice | Authorized staff | Fictional notice stored in Firestore and visible through case portal |
+| Propose tax adjustment | Auditors, supervisors or Commissioner | Pending proposal, no immediate balance changes |
+| Determine tax adjustment | Supervisor/Commissioner, with separation of duties | Approval or denial, determination notice and, on approval, a balanced Treasury journal |
+
+The **tax adjustment** is a genuine server-side transaction that updates the existing Treasury tax account and posts a balanced general-ledger journal. It verifies the original proposed assessment against the current amount and refuses stale proposals. Reserved refunds can block incompatible adjustments; the reviewer can now cancel an authorized but unpaid refund to release its reserve. All amounts remain simulated and no actual money is handled.
+
+### Generation 4 Firestore collections
+
+- agencyCases
+- agencyCaseEvents
+- agencyNotices
+- agencyCaseAdjustments
+
+Direct browser reads/writes to these collections are denied; Functions filter by account ownership and staff role. Internal investigation cases and internal correspondence are excluded from citizen views.
+
+### Additional Firebase callable Functions
+
+- listAgencyCases
+- getAgencyCase
+- createAgencyCase
+- addAgencyCaseNote
+- assignAgencyCase
+- advanceAgencyCase
+- issueAgencyNotice
+- proposeAgencyAdjustment
+- determineAgencyAdjustment
+- listAgencyOfficers
+- cancelTreasuryRefund (reserved-credit release for treasury authorization corrections)
+
+### Verification without deployment
+
+In PowerShell from your repository root (Node.js 22):
+
+    npm.cmd install --prefix functions
+    npm.cmd test --prefix functions
+    node.exe --check functions/cases.js
+    node.exe --check assets/cases.js
+
+The GitHub Actions workflow checks all modules and financial/case-flow unit tests. End-to-end Firebase integration remains unverified until final deployment.
+
+## Upcoming generations
+
+- **Generation 5:** automated fictional taxpayers/businesses, economic scenarios, case workloads and adjustable simulated time.
+- **Generation 6:** institutional reporting, printed document improvements, executive analytics, user experience refinements, performance and security hardening.
+
+## Important boundaries
+
+This is a **fictional roleplay simulation**, not a government tax administration or legal enforcement service. All documents include a fictional disclaimer, do not have legal effect, and must not contain real SSNs, real financial credentials or real confidential taxpayer details.
+
+The casework and Treasury currently use capped lists of up to 200 records in each relevant collection. Production-scale pagination and more advanced analytics should be addressed in Generation 6.
+
+### GitHub branch order
+
+1. Generation 1 PR was merged to \`main\`.
+2. Generation 2 PR was accidentally merged into Generation 1's feature branch rather than \`main\`.
+3. Generation 3's cumulative PR therefore includes **both Generations 2 and 3** and targets \`main\`.
+4. Generation 4 is based on the Generation 3 branch; merge the cumulative Generation 3 PR to \`main\` first, then retarget Generation 4 PR to \`main\` and merge.
+
+No deployment is needed until all generations are complete.
+
+---
+
+# Generation 3 reference
 
 ## Treasury & Financial Operations (code complete; not deployed)
 

@@ -1,0 +1,45 @@
+/* Generation 4 — institutional casework */
+.c-banner{border-radius:15px;background:linear-gradient(112deg,#203852,#315471);padding:29px 31px;color:white;display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:19px;overflow:hidden}
+.c-banner span{font-size:10px;letter-spacing:.15em;color:#dfc38a;font-weight:800}.c-banner h2{font-size:22px;letter-spacing:-.045em;margin:9px 0}.c-banner p{font-size:12px;color:#c5d5e4;line-height:1.7}
+.c-banner-seal{flex:0 0 100px;width:100px;height:100px;border:2px solid #ddc28d66;border-radius:50%;display:grid;place-items:center;color:#f3dca990;font-size:28px;font-family:Georgia,serif;font-weight:bold;box-shadow:0 0 0 8px #ffffff0b,0 0 0 15px #ffffff06}
+.c-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:22px}
+.c-stat{background:#fff;border:1px solid #e2e8ef;border-radius:14px;padding:21px;display:flex;flex-direction:column;gap:9px;box-shadow:var(--shadow)}
+.c-stat small{font-size:11px;color:#77899c;font-weight:750}.c-stat strong{font:800 25px "Manrope",sans-serif;color:#233951;letter-spacing:-.035em}.c-stat span{font-size:10px;color:#899bad}
+.c-pill{display:inline-flex;padding:6px 10px;background:#eef2f6;color:#5a718a;border-radius:22px;font-size:10px;white-space:nowrap;font-weight:800}
+.c-pill.open,.c-pill.submitted{background:#edf1f7;color:#526d90}
+.c-pill.information_requested,.c-pill.awaiting_decision,.c-pill.proposed_adjustment,.c-pill.arrangement_pending{background:#fff3de;color:#977134}
+.c-pill.under_review,.c-pill.gathering,.c-pill.contacted{background:#e7f0fd;color:#3d6596}
+.c-pill.resolved,.c-pill.closed{background:#e9f5ed;color:#2d825b}
+.c-pill.referred{background:#f8eced;color:#ae525e}
+.c-empty{text-align:center;padding:48px 22px}.c-empty-crest{width:62px;height:62px;background:#f3f2ec;color:#ad925f;border-radius:13px;display:grid;place-items:center;font-weight:900;margin:0 auto 15px}
+.c-empty h3{font-size:15px}.c-empty p{font-size:12px;color:#91a0ae;line-height:1.7;max-width:430px;margin:9px auto}
+.c-tools{justify-content:space-between}.c-tools input{min-width:200px}.c-tools select{max-width:225px}
+.c-error{font-size:12px;color:#ab4051;line-height:1.6;margin-top:9px}
+.c-info{font-size:12px;line-height:1.8;background:#f6f8fb;border:1px solid #e4eaf1;color:#61748b;border-radius:10px;padding:15px;margin:0 0 18px;white-space:pre-wrap;overflow-wrap:anywhere}
+.c-info strong{color:#2c4460}.c-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.c-case-head{background:#172f4d;padding:23px;color:white;border-radius:10px;margin-bottom:18px}
+.c-case-head .eyebrow{color:#d7b981}.c-case-head h3{font-size:19px;line-height:1.4;margin-top:8px;letter-spacing:-.025em}
+.c-case-head p{font-size:11px;color:#a7c1da;margin-top:8px;letter-spacing:.06em}
+.c-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:20px}
+.c-details>div{background:#f8fafc;border:1px solid #e6ecf2;padding:12px 13px;border-radius:9px;min-width:0}
+.c-details small{font-size:10px;color:#8a9aab;display:block;margin-bottom:6px}
+.c-details strong{font-size:12px;color:#3b516b;overflow-wrap:anywhere}
+.c-subtitle{font-size:13px;margin:18px 0 8px}.c-statement{padding:14px 15px;background:#f9fafb;border:1px solid #e7ebef;border-radius:10px;font-size:12px;line-height:1.8;color:#627589;white-space:pre-wrap;overflow-wrap:anywhere}
+.c-tabs-title{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e7ecf2;margin:22px 0 11px;padding-bottom:9px}
+.c-tabs-title h3{font-size:13px}.c-tabs-title span{font-size:10px;color:#90a1b1}
+.c-timeline{border-left:2px solid #e5eaf0;margin-left:8px;padding-left:20px}
+.c-event{position:relative;padding:9px 4px 16px;border-bottom:1px solid #eff2f5}
+.c-event-dot{position:absolute;left:-27px;top:16px;background:#ceb17e;width:11px;height:11px;border-radius:50%;border:2px solid #fff}
+.c-event strong{display:block;font-size:12px;color:#29415e}.c-event small{display:block;font-size:10px;color:#8c9ba9;margin-top:4px}
+.c-event p{font-size:12px;color:#63768d;line-height:1.75;margin-top:7px;white-space:pre-wrap;overflow-wrap:anywhere}
+.c-notice{padding:13px 15px;background:#fcfdfe;border:1px solid #e2e8ee;border-radius:9px;display:flex;flex-direction:column;align-items:start;gap:6px;margin-bottom:9px;width:100%;text-align:left}
+.c-notice:hover{border-color:#cdb17e}.c-notice strong{font-size:12px}.c-notice small{color:#8294a5;font-size:10px}
+.c-case-actions{margin-top:22px;padding:19px;background:#f7f9fb;border:1px solid #e3eaf1;border-radius:11px}
+.c-case-actions h3{font-size:14px}.c-case-actions p{font-size:11px;color:#8394a7;line-height:1.7;margin:7px 0 16px}
+.c-action-grid{display:flex;gap:9px;flex-wrap:wrap}.c-action-grid .button{font-size:11px;min-height:38px;padding:9px 12px}
+.c-letter{padding:25px;background:#fffdf8;border:1px solid #ebdfc6;border-radius:11px;box-shadow:0 1px 8px #1d2b3a0b}
+.c-letter .eyebrow{color:#ac8b58}.c-letter h3{font-family:Georgia,serif;font-size:20px;line-height:1.4;margin:12px 0 17px}
+.c-letter p{font-size:12px;line-height:2;color:#3f4b59;white-space:normal;overflow-wrap:anywhere}
+.c-smallprint{font-size:10px;color:#a0aab5;line-height:1.7;margin-top:20px}
+@media(max-width:950px){.c-stats{grid-template-columns:1fr 1fr}.c-banner-seal{display:none}}
+@media(max-width:620px){.c-stats,.c-details,.c-form-grid{grid-template-columns:1fr}.c-tools input,.c-tools select{width:100%;max-width:100%}.c-banner{padding:22px}.c-banner h2{font-size:19px}}

@@ -99,3 +99,7 @@ export {getTaxCatalog,setTaxPolicy,previewTaxReturn,saveTaxDraft,submitTaxReturn
 
 // Generation 3: fictional treasury accounting, payments, refunds and reconciliation.
 export {getTreasuryData,getTreasuryOverview,recordTreasuryPayment,requestTreasuryRefund,decideTreasuryRefund,disburseTreasuryRefund,requestTreasuryPlan,decideTreasuryPlan,reconcileTreasury} from "./treasury.js";
+
+// Generation 4: agency cases, audit workflow, collections, appeals and investigations.
+export {listAgencyCases,getAgencyCase,createAgencyCase,addAgencyCaseNote,assignAgencyCase,advanceAgencyCase,issueAgencyNotice,proposeAgencyAdjustment,determineAgencyAdjustment,listAgencyOfficers} from "./cases.js";
+export {cancelTreasuryRefund} from "./treasury.js";
