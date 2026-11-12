@@ -1,3 +1,13 @@
+# Unified Revenue Authority — Six Generations Complete (Source Code)
+
+**Generation 6 introduces Executive Intelligence, the Enterprise Taxpayer Registry, linked Dossiers, Document Studio, global module search and final reporting infrastructure.**
+
+**All six generations are coded in the stacked GitHub feature branches. No Firebase or GitHub Pages deployment has been performed.**
+
+Read the **[Generation 6 final handoff](docs/GENERATION_6.md)** for new features, permissions, limitations, testing, merge order, and final PowerShell deployment instructions.
+
+---
+
 **Generation 5 is implemented in the current feature branch.** See [Generation 5 — Simulation Engine](docs/GENERATION_5.md) for scope, permissions, gameplay and testing instructions. Firebase/hosting deployment is intentionally deferred.
 
 # Unified Revenue Authority — Generations 1–5 (Generation 5 branch)
