@@ -34,7 +34,7 @@ export function accountId(taxpayerId,year,type){
 }
 export function blankAccount(fields){
  return {taxpayerId:fields.taxpayerId,taxpayerName:fields.taxpayerName||"",
-  ownerUid:fields.ownerUid||null,taxYear:Number(fields.taxYear),returnType:fields.returnType,
+  ownerUid:fields.ownerUid||null,simulated:Boolean(fields.simulated),taxYear:Number(fields.taxYear),returnType:fields.returnType,
   assessedCents:0,declaredPaymentsCents:0,directPaymentsCents:0,
   refundsDisbursedCents:0,reservedRefundCents:0,
   outstandingCents:0,creditAvailableCents:0,refundAvailableCents:0,

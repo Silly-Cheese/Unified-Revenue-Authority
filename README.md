@@ -1,4 +1,6 @@
-# Unified Revenue Authority — Generation 4 of 6
+**Generation 5 is implemented in the current feature branch.** See [Generation 5 — Simulation Engine](docs/GENERATION_5.md) for scope, permissions, gameplay and testing instructions. Firebase/hosting deployment is intentionally deferred.
+
+# Unified Revenue Authority — Generations 1–5 (Generation 5 branch)
 
 **Status:** Source code for Generations 1–4 is assembled in GitHub. No Firebase Functions, Firestore Rules or GitHub Pages deployment has been performed. The owner will complete deployment after all six generations.
 
