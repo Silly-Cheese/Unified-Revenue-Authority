@@ -3,6 +3,7 @@ import {taxPages,taxPageHTML,taxPageBind,taxLoad} from "./tax.js";
 import {treasuryPages,treasuryPageHTML,treasuryPageBind,treasuryLoad} from "./treasury.js";
 import {casePages,casePageHTML,casePageBind,caseLoad} from "./cases.js";
 import {simulationPages,simulationPageHTML,simulationPageBind,simulationLoad} from "./simulation.js";
+import {openPortalActivation} from "./portal.js";
 import {enterprisePages,enterprisePageHTML,enterprisePageBind,enterpriseLoad} from "./enterprise.js";
 import {authListener,profile,register,login,logout,call} from "./auth.js";
 import {collection,getDocs,query,orderBy,limit} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
@@ -158,7 +159,11 @@ function newTaxpayer(){
 }
 function viewTaxpayer(id){
  const t=state.taxpayers.find(x=>x.id===id);if(!t)return;
- modal("Taxpayer record",'<div class="modal-body"><div class="detail-grid">'+detail("Name",t.fullName)+detail("Taxpayer reference",t.taxpayerNumber||t.id)+detail("Classification",t.type)+detail("Region",t.region)+detail("Status",t.status||"active")+detail("Created",formatDate(t.createdAt))+'</div><div class="alert" style="margin-top:17px">'+esc(t.notes||"No internal notes provided.")+'</div></div><div class="modal-bottom">'+(isCommissioner()&&t.status!=="archived"?'<button class="button danger" id="archiveTax">Archive record</button>':"")+'<button class="button secondary" data-close>Close</button></div>',el=>{
+ modal("Taxpayer record",'<div class="modal-body"><div class="detail-grid">'+detail("Name",t.fullName)+detail("Taxpayer reference",t.taxpayerNumber||t.id)+detail("Classification",t.type)+detail("Region",t.region)+detail("Status",t.status||"active")+detail("Created",formatDate(t.createdAt))+'</div><div class="alert" style="margin-top:17px">'+esc(t.notes||"No internal notes provided.")+'</div></div><div class="modal-bottom">'+(isCommissioner()&&!t.ownerUid&&t.status==="active"?'<button class="button" id="activateTaxPortal">Create portal login</button>':"")+(isCommissioner()&&t.status!=="archived"&&!t.ownerUid?'<button class="button danger" id="archiveTax">Archive record</button>':"")+'<button class="button secondary" data-close>Close</button></div>',el=>{
+ el.querySelector("#activateTaxPortal")?.addEventListener("click",()=>{
+  el.remove();
+  openPortalActivation(t,{modal,toast,reload:loadPage});
+ });
  el.querySelector("#archiveTax")?.addEventListener("click",async()=>{
  if(!confirm("Archive this taxpayer record? Archived records remain in the audit history."))return;
  try{await call("archiveTaxpayer",{id:t.id});el.remove();toast("Taxpayer archived.");await loadPage();}catch(e){toast(authError(e),true);}
@@ -194,10 +199,16 @@ async function loadPage(){
  try{
   const jobs=[];
   if(isStaff()){
-   jobs.push(call("getOverview").then(r=>state.overview=r.data));
-   jobs.push(getDocs(query(collection(db,"auditLogs"),orderBy("createdAt","desc"),limit(25))).then(s=>state.events=s.docs.map(d=>({id:d.id,...d.data()}))));
-   if(state.page==="taxpayers")jobs.push(getDocs(query(collection(db,"taxpayers"),orderBy("createdAt","desc"),limit(200))).then(s=>state.taxpayers=s.docs.map(d=>({id:d.id,...d.data()}))));
-   if(state.page==="staff"&&isCommissioner())jobs.push(getDocs(query(collection(db,"users"),orderBy("createdAt","desc"),limit(100))).then(s=>state.users=s.docs.map(d=>({id:d.id,...d.data()}))));
+   // Avoid loading the command-center aggregate on unrelated pages.
+   // This prevents a failing overview request from masking enterprise/registry results.
+   if(state.page==="dashboard")
+    jobs.push(call("getOverview").then(r=>state.overview=r.data));
+   if(state.page==="dashboard"||state.page==="activity")
+    jobs.push(getDocs(query(collection(db,"auditLogs"),orderBy("createdAt","desc"),limit(25))).then(s=>state.events=s.docs.map(d=>({id:d.id,...d.data()}))));
+   if(state.page==="taxpayers")
+    jobs.push(getDocs(query(collection(db,"taxpayers"),orderBy("createdAt","desc"),limit(200))).then(s=>state.taxpayers=s.docs.map(d=>({id:d.id,...d.data()}))));
+   if(state.page==="staff"&&isCommissioner())
+    jobs.push(getDocs(query(collection(db,"users"),orderBy("createdAt","desc"),limit(100))).then(s=>state.users=s.docs.map(d=>({id:d.id,...d.data()}))));
   }
   if(taxPages.includes(state.page))jobs.push(taxLoad(state));
   if(treasuryPages.includes(state.page))jobs.push(treasuryLoad(state));

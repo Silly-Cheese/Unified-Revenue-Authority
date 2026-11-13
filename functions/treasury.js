@@ -2,6 +2,7 @@
 // taxpayer payments, refund workflow, installment plans, and reconciliation.
 import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
+import {canAccessTaxpayerRecord} from "./lib/portal-access.js";
 import {
  CHART,ACCOUNT_TYPES,PAYMENT_METHODS,accountId,blankAccount,deriveAccount,
  positiveCents,moneyFromDollars,validateLines,assessmentChange,paymentChange,
@@ -9,7 +10,7 @@ import {
 } from "./lib/treasury-engine.js";
 
 const db=()=>getFirestore();
-const opts={cors:true};
+const opts={cors:true,invoker:"public"};
 const reviewerRoles=["commissioner","supervisor"];
 const staffRoles=["commissioner","supervisor","staff","auditor"];
 const officeRoles=["commissioner","supervisor","staff"];
@@ -30,7 +31,7 @@ async function currentActor(req){
 function permit(actor,roles){if(!roles.includes(actor.role))fail("permission-denied","Not authorized to perform this transaction.");}
 function isEmployee(actor){return staffRoles.includes(actor.role);}
 function ensureAccountOwner(actor,acct){
- if(!isEmployee(actor)&&(acct.ownerUid!==actor.uid||!actor.taxpayerId||actor.taxpayerId!==acct.taxpayerId))
+ if(!isEmployee(actor)&&(!canAccessTaxpayerRecord(actor,acct)))
   fail("permission-denied","This fictional taxpayer account does not belong to you.");
 }
 function sanitized(obj){return {...obj,id:obj.id,createdAt:dateStamp(obj.createdAt),updatedAt:dateStamp(obj.updatedAt),
@@ -103,8 +104,8 @@ async function getAccount(actor,key){
 async function loadData(col,actor,count=200){
  const ref=db().collection(col);
  const snap=isEmployee(actor)?await ref.orderBy("createdAt","desc").limit(count).get():
-  await ref.where("ownerUid","==",actor.uid).limit(count).get();
- const items=snap.docs.map(d=>sanitized({id:d.id,...d.data()}));
+  await ref.where("taxpayerId","==",actor.taxpayerId).limit(count).get();
+ const items=snap.docs.filter(d=>isEmployee(actor)||canAccessTaxpayerRecord(actor,d.data())).map(d=>sanitized({id:d.id,...d.data()}));
  items.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
  return items;
 }

@@ -1,0 +1,13 @@
+/* Portal activation: Commissioner-only RP identity conversion */
+.p-intro{padding:15px 17px;background:#eef3f9;border:1px solid #dce5ee;border-radius:10px;margin-bottom:16px}
+.p-intro strong{display:block;font-size:14px;color:#244260}.p-intro p{font-size:11px;color:#647f98;line-height:1.75;margin-top:7px}
+.p-summary{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:19px}
+.p-summary>div{min-width:0;background:#fafbfc;border:1px solid #e6ebf1;border-radius:9px;padding:12px}
+.p-summary>div:first-child{grid-column:1/-1}.p-summary small{display:block;font-size:10px;color:#899aab;margin-bottom:5px}.p-summary strong{font-size:12px;color:#314c66;overflow-wrap:anywhere}
+.p-help{display:block;font-size:10px;line-height:1.6;color:#8898a9;margin-top:6px}
+.p-warning{background:#fffbf2;border:1px solid #f1dec0;padding:12px 14px;border-radius:9px;color:#876936;font-size:11px;line-height:1.75;margin:16px 0}
+.p-show{display:inline-flex;align-items:center;gap:9px;font-size:11px;color:#62778d;cursor:pointer;margin-top:5px}
+.p-show input{accent-color:#254666}
+.p-error{font-size:12px;color:#ac4550;line-height:1.5;min-height:16px}
+.p-controls{display:flex;gap:9px;justify-content:flex-end;border-top:1px solid #e8edf2;padding-top:18px;margin-top:14px;flex-wrap:wrap}
+@media(max-width:600px){.p-summary{grid-template-columns:1fr}.p-summary>div:first-child{grid-column:auto}.p-controls{flex-direction:column-reverse}.p-controls button{width:100%}}

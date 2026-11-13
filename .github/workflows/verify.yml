@@ -27,6 +27,7 @@ jobs:
           node --check assets/simulation.js
           node --check assets/documents.js
           node --check assets/enterprise.js
+          node --check assets/portal.js
           node --check assets/auth.js
           node --check assets/firebase.js
           node --check functions/index.js
@@ -35,6 +36,8 @@ jobs:
           node --check functions/cases.js
           node --check functions/simulation.js
           node --check functions/enterprise.js
+          node --check functions/portal.js
+          node --check functions/lib/portal-access.js
           node --check functions/lib/reporting.js
           node --check functions/lib/simulation-engine.js
           node --check functions/lib/case-workflow.js

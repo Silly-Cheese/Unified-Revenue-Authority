@@ -3,11 +3,12 @@
 import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {postCaseAdjustmentInTx} from "./treasury.js";
+import {canAccessTaxpayerRecord} from "./lib/portal-access.js";
 import {deriveAccount} from "./lib/treasury-engine.js";
 import {CASE_TYPES,canAdvance,initialCaseStatus,canCitizenReadCase} from "./lib/case-workflow.js";
 
 const db=()=>getFirestore();
-const opts={cors:true};
+const opts={cors:true,invoker:"public"};
 const STAFF=["commissioner","supervisor","staff","auditor"];
 const SUPERVISORS=["commissioner","supervisor"];
 const AUDITORS=["commissioner","supervisor","auditor"];
@@ -82,8 +83,8 @@ export const listAgencyCases=onCall(opts,async req=>{
  const user=await actor(req);
  const col=db().collection("agencyCases");
  const snap=employee(user)?await col.orderBy("createdAt","desc").limit(200).get():
-  await col.where("ownerUid","==",user.uid).limit(200).get();
- const cases=snap.docs.filter(d=>d.data().kind!=="investigation"||AUDITORS.includes(user.role)).map(d=>caseSummary(d.data(),d.id));
+  await col.where("taxpayerId","==",user.taxpayerId).limit(200).get();
+ const cases=snap.docs.filter(d=>(employee(user)||canAccessTaxpayerRecord(user,d.data()))&&(d.data().kind!=="investigation"||AUDITORS.includes(user.role))).map(d=>caseSummary(d.data(),d.id));
  cases.sort((x,y)=>String(y.createdAt).localeCompare(String(x.createdAt)));
  return {cases,limit:200,kinds:CASE_TYPES};
 });
@@ -118,7 +119,7 @@ export const createAgencyCase=onCall(opts,async req=>{
  const acctSnap=await db().collection("treasuryAccounts").doc(accountKey).get();
  if(!acctSnap.exists)fail("not-found","An accepted tax assessment is required to open a case.");
  const acct=deriveAccount(acctSnap.data());
- if(!employee(user)&&(acct.ownerUid!==user.uid||acct.taxpayerId!==user.taxpayerId))
+ if(!employee(user)&&(!canAccessTaxpayerRecord(user,acct)))
   fail("permission-denied","You may appeal only your own tax account.");
  if(kind==="collection"&&acct.outstandingCents<=0)fail("failed-precondition","No collectible assessed balance exists.");
  const priority=String(req.data?.priority||"standard");

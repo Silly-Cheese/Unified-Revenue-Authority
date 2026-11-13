@@ -1,3 +1,7 @@
+## Existing taxpayer → portal account
+
+The Commissioner can now convert a generated NPC or agency-created taxpayer into a **name-and-password portal login** without creating a new taxpayer record. See [Portal Conversion](docs/PORTAL_CONVERSION.md).
+
 # Unified Revenue Authority — Six Generations Complete (Source Code)
 
 **Generation 6 introduces Executive Intelligence, the Enterprise Taxpayer Registry, linked Dossiers, Document Studio, global module search and final reporting infrastructure.**
