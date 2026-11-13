@@ -1,5 +1,6 @@
 // Generation 6 — Institutional Intelligence, Registry Search and Document Studio.
 import {call} from "./auth.js";
+import {openPortalActivation} from "./portal.js";
 import {escapeHTML as E,centsText as cash,csvText,createCSV,printDocument} from "./documents.js";
 
 export const enterprisePages=["executive","registry","dossier","documents"];
@@ -89,7 +90,8 @@ function registryPage(s,h){
  const rows=registry.map(x=>'<tr><td><strong>'+E(x.fullName)+'</strong><div class="tax-sub">'+E(x.taxpayerNumber)+'</div></td>'+
  '<td>'+E(x.type)+'</td><td>'+E(x.region||"—")+'</td><td>'+pill(x.status,x.status==="active"?"good":"neutral")+'</td>'+
  '<td>'+pill(x.simulated?"Generated NPC":x.ownerLinked?"Registered player":"Agency record",x.simulated?"gold":"neutral")+'</td>'+
- '<td><button class="link" data-e-dossier="'+E(x.id)+'">Open dossier</button></td></tr>');
+ '<td><button class="link" data-e-dossier="'+E(x.id)+'">Open dossier</button>'+
+ (s.me?.role==="commissioner"&&!x.ownerLinked&&x.status==="active"?'<button class="link" data-e-activate="'+E(x.id)+'">Create portal</button>':"")+'</td></tr>');
  return title(s,h,"Enterprise taxpayer registry","Search taxpayer names, browse in pages, and open comprehensive financial and casework profiles.")+
  '<div class="e-hero compact"><div><div class="e-overline">CITIZEN SERVICES · INSTITUTIONAL REGISTRY</div><h2>Every taxpayer has a story.</h2><p>One account dossier for all filings, assessments, payments, refunds and official RP correspondence.</p></div></div>'+
  '<section class="card e-card"><form id="e-registry-search" class="e-registry-search"><div><label for="e-prefix">Search by beginning of taxpayer name (case-sensitive)</label><input class="input" id="e-prefix" maxlength="60" placeholder="e.g., Jordan" value="'+E(registryPrefix)+'"></div><button class="button" type="submit">Search registry</button><button class="button secondary" type="button" id="e-clear-search">Clear</button></form>'+
@@ -134,6 +136,7 @@ function dossierPage(s,h){
  '<section class="card e-card">'+heading("Connected agency records","Up to 100 entries per category")+
  '<div class="e-dossier-list">'+activity+'</div></section>'+
  '<div class="e-action-strip"><button class="button" id="e-print-statement">Print taxpayer account statement</button>'+
+ (s.me?.role==="commissioner"&&!x.ownerLinked&&x.status==="active"?'<button class="button secondary" id="e-activate-portal">Convert to portal account</button>':"")+
  (canStaff(s)?'<button class="button secondary" id="e-registry-return">Return to registry</button>':"")+'</div>'+
  '<p class="tax-disclaimer">All taxpayer accounts, filings and financial figures are fictional. Document Studio prints a clearly labeled RP record.</p>';
 }
@@ -325,6 +328,15 @@ export function enterprisePageBind(s,h){
  document.getElementById("e-prev-page")?.addEventListener("click",()=>{
   if(!registryStack.length)return;
   registryCursor=registryStack.pop()||null;reloadPage(h);
+ });
+ document.querySelectorAll("[data-e-activate]").forEach(button=>button.addEventListener("click",()=>{
+  if(s.me?.role!=="commissioner")return;
+  const t=registry.find(x=>x.id===button.dataset.eActivate);
+  if(t)openPortalActivation(t,{modal:h.modal,toast:h.toast,reload:reloadPage.bind(null,h)});
+ }));
+ document.getElementById("e-activate-portal")?.addEventListener("click",()=>{
+  if(s.me?.role!=="commissioner"||!dossier)return;
+  openPortalActivation(dossier.taxpayer,{modal:h.modal,toast:h.toast,reload:reloadPage.bind(null,h)});
  });
  document.querySelectorAll("[data-e-dossier]").forEach(button=>button.addEventListener("click",()=>{
   selectedTaxpayerId=button.dataset.eDossier;dossier=null;location.hash="#dossier";

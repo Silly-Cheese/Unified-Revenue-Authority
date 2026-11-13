@@ -1,4 +1,5 @@
 // Generation 4 — deterministic, inspectable case transitions for RP workflows.
+import {canAccessTaxpayerRecord} from "./portal-access.js";
 export const CASE_TYPES=["audit","appeal","collection","investigation"];
 export const CASE_TRANSITIONS={
  audit:{open:["information_requested","under_review","closed"],information_requested:["under_review","closed"],
@@ -20,6 +21,6 @@ export function initialCaseStatus(kind){
  return kind==="appeal"?"submitted":"open";
 }
 export function canCitizenReadCase(uid,taxpayerId,record){
- return record.kind!=="investigation" && Boolean(record.ownerUid) &&
- record.ownerUid===uid && record.taxpayerId===taxpayerId;
+ return record.kind!=="investigation" &&
+ canAccessTaxpayerRecord({uid,taxpayerId},record);
 }

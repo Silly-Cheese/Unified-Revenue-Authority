@@ -219,6 +219,7 @@ export const getTaxpayerDossier=onCall(opts,async req=>{
  const totals=summarizeAccounts(records.treasuryAccounts);
  return {taxpayer:{id:doc.id,fullName:t.fullName,taxpayerNumber:t.taxpayerNumber,
   type:t.type,region:t.region,status:t.status,simulated:t.simulated===true,
+  ownerLinked:!!t.ownerUid,portalName:agency?t.portalName||null:undefined,
   notes:agency?t.notes||"":undefined,
   createdAt:dateValue(t.createdAt)},
   totals,records,limits:{perCollection:100,

@@ -2,6 +2,7 @@
 // The server is authoritative; no browser writes returns or assessments to Firestore.
 import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {postReturnAssessmentInTx} from "./treasury.js";
+import {canAccessTaxpayerRecord} from "./lib/portal-access.js";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {TAX_YEARS,defaultPolicy,validatePolicy,normalizeReturnData,calculateReturn,ensureType,ensureYear} from "./lib/tax-engine.js";
 const opts={cors:true,invoker:"public"};
@@ -130,7 +131,7 @@ export const saveTaxDraft=onCall(opts,async req=>{
     fail("permission-denied","Cannot change the taxpayer account or filing year.");
    if(!["draft","information_requested","rejected"].includes(previous.status))
     fail("failed-precondition","This return is already filed. Use the amendment workflow instead.");
-   if(!isStaff(actor)&&previous.ownerUid!==actor.uid)fail("permission-denied","Not your return.");
+   if(!isStaff(actor)&&!canAccessTaxpayerRecord(actor,previous))fail("permission-denied","Not your return.");
   }
   const base={data:normalized,calculation,policySnapshot:policy,
    updatedAt:FieldValue.serverTimestamp(),lastEditedBy:actor.uid};
@@ -149,7 +150,7 @@ export const submitTaxReturn=onCall(opts,async req=>{
  const id=ensureId(req.data?.returnId),ref=db().collection("taxReturns").doc(id);
  const initial=await ref.get();
  if(!initial.exists)fail("not-found","Draft return does not exist.");
- if(!isStaff(actor)&&initial.data().ownerUid!==actor.uid)fail("permission-denied","Not your return.");
+ if(!isStaff(actor)&&!canAccessTaxpayerRecord(actor,initial.data()))fail("permission-denied","Not your return.");
  const policyRef=db().collection("taxPolicies").doc(policyKey(initial.data().taxYear,initial.data().returnType));
  const auditRef=db().collection("auditLogs").doc();
  let output;
@@ -159,7 +160,7 @@ export const submitTaxReturn=onCall(opts,async req=>{
   const entry=snap.data();
   if(!["draft","information_requested","rejected"].includes(entry.status))
    fail("failed-precondition","This return has already been submitted.");
-  if(!isStaff(actor)&&entry.ownerUid!==actor.uid)fail("permission-denied","Not your return.");
+  if(!isStaff(actor)&&!canAccessTaxpayerRecord(actor,entry))fail("permission-denied","Not your return.");
   if(!entry.data?.attested)fail("failed-precondition","The fictional tax declaration must be acknowledged before submitting.");
   const policy=policySnap.exists?validatePolicy(policySnap.data()):defaultPolicy(entry.taxYear,entry.returnType);
   let calculation;
@@ -183,8 +184,8 @@ export const listTaxReturns=onCall(opts,async req=>{
  const collection=db().collection("taxReturns");
  const snapshots=isStaff(actor)?
   await collection.orderBy("updatedAt","desc").limit(250).get():
-  await collection.where("ownerUid","==",actor.uid).limit(250).get();
- const items=snapshots.docs.map(d=>serializeReturn(publicReturn(d.data(),d.id)));
+  await collection.where("taxpayerId","==",actor.taxpayerId).limit(250).get();
+ const items=snapshots.docs.filter(d=>isStaff(actor)||canAccessTaxpayerRecord(actor,d.data())).map(d=>serializeReturn(publicReturn(d.data(),d.id)));
  items.sort((a,b)=>String(b.updatedAt||"").localeCompare(String(a.updatedAt||"")));
  return {items,totalReturned:items.length,limit:250};
 });
@@ -244,7 +245,7 @@ export const beginTaxAmendment=onCall(opts,async req=>{
    fail("failed-precondition","Only an accepted, assessed return may be amended.");
   const r=original.data();
   if(r.amendedFrom)fail("failed-precondition","Start later amendments from the original return.");
-  if(!isStaff(actor)&&r.ownerUid!==actor.uid)fail("permission-denied","Not your return.");
+  if(!isStaff(actor)&&!canAccessTaxpayerRecord(actor,r))fail("permission-denied","Not your return.");
   const next=Number(r.amendmentCount||0)+1;
   if(next>20)fail("resource-exhausted","Too many amendments for this filing.");
   if(next>1){
@@ -273,8 +274,8 @@ export const beginTaxAmendment=onCall(opts,async req=>{
 export const listTaxAssessments=onCall(opts,async req=>{
  const actor=await currentActor(req),col=db().collection("taxAssessments");
  const snap=isStaff(actor)?await col.orderBy("createdAt","desc").limit(250).get():
-  await col.where("ownerUid","==",actor.uid).limit(250).get();
- const items=snap.docs.map(d=>serializeAssessment(d.id,d.data()));
+  await col.where("taxpayerId","==",actor.taxpayerId).limit(250).get();
+ const items=snap.docs.filter(d=>isStaff(actor)||canAccessTaxpayerRecord(actor,d.data())).map(d=>serializeAssessment(d.id,d.data()));
  items.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
  return {items,limit:250};
 });

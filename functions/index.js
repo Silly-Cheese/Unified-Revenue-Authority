@@ -109,3 +109,6 @@ export {getSimulationOverview,initializeSimulation,configureSimulation,generateS
 
 // Generation 6 — enterprise reporting, issued memoranda and unified taxpayer dossiers.
 export {getExecutiveReport,issueExecutiveReport,listExecutiveReports,getIssuedExecutiveReport,listAgencyRegistryPage,getTaxpayerDossier} from "./enterprise.js";
+
+// Commissioner-only activation of existing NPC or agency-created taxpayer portals.
+export {activateTaxpayerPortal} from "./portal.js";
