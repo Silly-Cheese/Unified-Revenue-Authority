@@ -111,4 +111,4 @@ export {getSimulationOverview,initializeSimulation,configureSimulation,generateS
 export {getExecutiveReport,issueExecutiveReport,listExecutiveReports,getIssuedExecutiveReport,listAgencyRegistryPage,getTaxpayerDossier} from "./enterprise.js";
 
 // Commissioner-only activation of existing NPC or agency-created taxpayer portals.
-export {activateTaxpayerPortal} from "./portal.js";
+export {activateTaxpayerPortal,resetConvertedPortalPassword,getTaxpayerPortalOverview} from "./portal.js";

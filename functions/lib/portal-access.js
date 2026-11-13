@@ -11,6 +11,11 @@ export function canAccessTaxpayerRecord(actor,record){
 export function canActivateTaxpayer(record){
  return Boolean(record&&record.status==="active"&&!record.ownerUid);
 }
+export function canResetConvertedPortal(taxpayerId,taxpayer,profile){
+ return Boolean(taxpayer?.status==="active"&&taxpayer.ownerUid&&taxpayer.portalName&&
+  profile?.status==="active"&&profile.role==="citizen"&&profile.taxpayerId===taxpayerId&&
+  ["converted_npc","converted_agency"].includes(profile.portalOrigin));
+}
 export function validatePortalName(raw){
  const name=cleanName(raw);
  if(!validName(name))throw Error("Use a fictional login name of 3–60 letters, spaces, apostrophes or hyphens.");

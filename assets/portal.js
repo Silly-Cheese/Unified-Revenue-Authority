@@ -1,62 +1,119 @@
-// Commissioner-only frontend for turning an existing fictional taxpayer record
-// into a portal login. The password is sent only to Firebase callable backend.
-import {call} from "./auth.js";
+import {call,changePassword,cleanName,validateName} from "./auth.js";
+import {escapeHTML as escape} from "./documents.js";
 
-const escape=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;":"&quot;","'":"&#39;"}[c]));
-const validateName=name=>/^[A-Za-z][A-Za-z '-]{2,59}$/.test(name);
-export function openPortalActivation(t,h){
- const linked=Boolean(t.ownerUid||t.ownerLinked);
- if(linked||t.status!=="active"){
-  h.toast(linked?"This taxpayer already has a portal account.":"Only active taxpayer records can be converted.",true);
-  return;
- }
- const name=t.portalName||t.fullName||"";
- const suggestion=validateName(name)&&name.toLowerCase()!=="christopher shelley"?name:"";
- const body='<div class="modal-body">'+
- '<div class="p-intro"><strong>Activate citizen portal access</strong><p>The existing taxpayer record and every linked fictional return, Treasury balance, refund, and administrative case will stay intact. This only creates a secure name-and-password login.</p></div>'+
- '<div class="p-summary"><div><small>Taxpayer</small><strong>'+escape(t.fullName)+'</strong></div><div><small>Reference</small><strong>'+escape(t.taxpayerNumber||t.id)+'</strong></div><div><small>Origin</small><strong>'+escape(t.simulated?"Generated RP taxpayer":"Agency-created taxpayer")+'</strong></div></div>'+
- '<form id="p-activate-form" autocomplete="off">'+
- '<div class="field"><label for="p-login-name">Portal login name</label><input id="p-login-name" class="input" required maxlength="60" autocomplete="off" value="'+escape(suggestion)+'" placeholder="e.g. Jordan Vale"><small class="p-help">Use a unique fictional full name. A business may have a different portal login name from its registered business name.</small></div>'+
- '<div class="field"><label for="p-password">New portal password</label><input id="p-password" class="input" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"></div>'+
- '<div class="field"><label for="p-confirm">Confirm portal password</label><input id="p-confirm" class="input" type="password" required minlength="10" maxlength="128" autocomplete="new-password" placeholder="Enter the password again"></div>'+
- '<label class="p-show"><input type="checkbox" id="p-show-password"> Show passwords while entering</label>'+
- '<div class="p-warning">This activates a new citizen login and grants access to this taxpayer’s existing RP financial and case records. The login must be given only to the intended player. Passwords are never saved in Firestore.</div>'+
- '<div class="p-error" role="alert" aria-live="polite"></div>'+
- '<div class="p-controls"><button type="button" class="button secondary" data-close>Cancel</button><button type="submit" class="button" id="p-submit">Create portal account</button></div>'+
- '</form></div>';
- const el=h.modal("Convert taxpayer to portal",body,root=>{
-  root.querySelector("#p-show-password")?.addEventListener("change",e=>{
-   const visible=e.currentTarget.checked;
-   root.querySelector("#p-password").type=visible?"text":"password";
-   root.querySelector("#p-confirm").type=visible?"text":"password";
+export function portalStatus(t){
+ if(t.ownerUid||t.ownerLinked)return "Portal linked";
+ return t.status==="active"?"Ready to convert":"Unavailable";
+}
+
+function taxpayerSummary(t){
+ return '<div class="p-summary"><div><small>Taxpayer</small><strong>'+escape(t.fullName)+'</strong></div>'+
+ '<div><small>Reference</small><strong>'+escape(t.taxpayerNumber||t.id)+'</strong></div>'+
+ '<div><small>Portal login</small><strong>'+escape(t.portalName||"Not linked")+'</strong></div></div>';
+}
+
+function openPasswordForm(h,{title,summary="",nameField="",current=false,action,pending,save,done}){
+ const currentField=current?'<div class="field"><label for="p-current">Current password</label><input id="p-current" class="input" type="password" required autocomplete="current-password"></div>':"";
+ return h.modal(title,'<div class="modal-body">'+summary+
+ '<form id="p-password-form">'+nameField+currentField+
+ '<div class="field"><label for="p-password">New password</label><input id="p-password" class="input" type="password" required minlength="10" maxlength="128" autocomplete="new-password" aria-describedby="p-password-help"><small id="p-password-help" class="p-help">Use 10–128 characters.</small></div>'+
+ '<div class="field"><label for="p-confirm">Confirm new password</label><input id="p-confirm" class="input" type="password" required minlength="10" maxlength="128" autocomplete="new-password"></div>'+
+ '<label class="p-show"><input type="checkbox" id="p-show-password"> Show passwords</label>'+
+ '<div class="p-error" role="alert"></div>'+
+ '<div class="p-controls"><button type="button" class="button secondary" data-close>Cancel</button><button type="submit" class="button">'+escape(action)+'</button></div>'+
+ '</form></div>',root=>{
+  const form=root.querySelector("#p-password-form");
+  const button=form.querySelector('[type="submit"]');
+  const name=form.querySelector("#p-login-name");
+  const currentInput=form.querySelector("#p-current");
+  const password=form.querySelector("#p-password");
+  const confirmation=form.querySelector("#p-confirm");
+  const fields=[currentInput,password,confirmation].filter(Boolean);
+  const issue=form.querySelector(".p-error");
+  (name||currentInput||password).focus();
+  form.querySelector("#p-show-password").addEventListener("change",e=>{
+   for(const field of fields)field.type=e.currentTarget.checked?"text":"password";
   });
-  root.querySelector("#p-activate-form")?.addEventListener("submit",async e=>{
+  form.addEventListener("submit",async e=>{
    e.preventDefault();
-   const button=root.querySelector("#p-submit");
    if(button.disabled)return;
-   const portalName=root.querySelector("#p-login-name").value.trim().replace(/\s+/g," ");
-   const password=root.querySelector("#p-password").value;
-   const confirmation=root.querySelector("#p-confirm").value;
-   const issue=root.querySelector(".p-error");
    issue.textContent="";
-   if(!validateName(portalName)){issue.textContent="Enter a fictional login name using 3–60 letters, spaces, apostrophes or hyphens.";return;}
-   if(password.length<10||password.length>128){issue.textContent="The password must be 10–128 characters long.";return;}
-   if(password!==confirmation){issue.textContent="The passwords do not match.";return;}
-   button.disabled=true;
-   button.textContent="Activating account…";
-   try{
-    await call("activateTaxpayerPortal",{taxpayerId:t.id,portalName,password});
-    root.querySelector("#p-password").value="";
-    root.querySelector("#p-confirm").value="";
-    root.remove();
-    h.toast("Portal activated for "+portalName+". Share the login name and password securely with the intended player.");
-    await h.reload();
-   }catch(err){
-    issue.textContent=err?.message||"Unable to activate the portal. Check Firebase Functions logs.";
-   }finally{
-    button.disabled=false;button.textContent="Create portal account";
+   const portalName=cleanName(name?.value);
+   if(name&&!validateName(portalName)){
+    issue.textContent="Use a fictional login name of 3–60 letters, spaces, apostrophes or hyphens.";
+    name.focus();
+    return;
    }
+   if(!password.value.trim()||password.value.length<10||password.value.length>128){
+    issue.textContent="Use a password of 10–128 characters.";
+    password.focus();
+    return;
+   }
+   if(password.value!==confirmation.value){
+    issue.textContent="The passwords do not match.";
+    confirmation.focus();
+    return;
+   }
+   button.disabled=true;
+   button.textContent=pending;
+   let result;
+   try{
+    result=await save({portalName,password:password.value,currentPassword:currentInput?.value});
+   }catch(err){
+    issue.textContent=h.authError?.(err)||err?.message||"Could not save the password. Try again.";
+    if(!root.isConnected)h.toast(issue.textContent,true);
+    return;
+   }finally{
+    button.disabled=false;
+    button.textContent=action;
+   }
+   form.reset();
+   root.remove();
+   await done(result);
   });
  });
- return el;
+}
+
+export function openPortalActivation(t,h){
+ if(portalStatus(t)!=="Ready to convert"){
+  h.toast("Only active taxpayers without a portal can be converted.",true);
+  return;
+ }
+ const name=cleanName(t.fullName);
+ const suggestion=validateName(name)&&name.toLowerCase()!=="christopher shelley"?name:"";
+ return openPasswordForm(h,{
+  title:"Create portal login",
+  summary:taxpayerSummary(t)+'<p class="p-note">The player will sign in with the name and password you set here. Their existing taxpayer reference and history carry over.</p>',
+  nameField:'<div class="field"><label for="p-login-name">Portal login name</label><input id="p-login-name" class="input" required maxlength="60" autocomplete="off" value="'+escape(suggestion)+'" placeholder="e.g. Jordan Vale"><small class="p-help">Choose a unique fictional name. It can differ from the taxpayer’s registered name.</small></div>',
+  action:"Create portal login",
+  pending:"Creating login…",
+  save:({portalName,password})=>call("activateTaxpayerPortal",{taxpayerId:t.id,portalName,password}),
+  done:async result=>{
+   h.toast("Portal login created for "+result.data.portalName+".");
+   await h.reload();
+  }
+ });
+}
+
+export function openPortalReset(t,h){
+ if(portalStatus(t)!=="Portal linked"||!t.portalName||t.status!=="active")return;
+ return openPasswordForm(h,{
+  title:"Reset portal password",
+  summary:taxpayerSummary(t)+'<p class="p-note">The player will use the new password with the same login name.</p>',
+  action:"Reset password",
+  pending:"Resetting password…",
+  save:({password})=>call("resetConvertedPortalPassword",{taxpayerId:t.id,password}),
+  done:()=>h.toast("Password reset for "+t.portalName+".")
+ });
+}
+
+export function openPasswordChange(h){
+ return openPasswordForm(h,{
+  title:"Change your password",
+  current:true,
+  action:"Change password",
+  pending:"Changing password…",
+  save:({currentPassword,password})=>changePassword(currentPassword,password),
+  done:()=>h.toast("Your password was changed.")
+ });
 }
