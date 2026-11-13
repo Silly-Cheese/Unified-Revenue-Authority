@@ -41,9 +41,13 @@ Future actions on a converted taxpayer may store the new user UID; both historic
 
 **This is a fictional simulation, never a real tax system.**
 
-## Merge and deploy
+## Password management
 
-This PR is branched from the existing production-callable fix PR #8 so that both can be merged safely through this one cumulative PR if needed. **Do not merge an earlier feature branch on top of main after this PR is merged.** If #8 is already merged, merge this PR as usual.
+The Commissioner can find the login name in the registry and choose **Reset portal password** in the taxpayer record or dossier. This action applies to active citizen portals created through conversion. It uses the same login name and taxpayer record. The audit log records the reset request.
+
+Signed-in users can choose **My account → Change password** and confirm their current password before setting a new one.
+
+## Merge and deploy
 
 After merging, from your Windows PowerShell project folder:
 
@@ -52,7 +56,7 @@ After merging, from your Windows PowerShell project folder:
     npm.cmd test --prefix functions
     firebase.cmd deploy --only functions --project unified-revenue-authority
 
-All Functions must be deployed—not just \`activateTaxpayerPortal\`—because the existing tax, Treasury, casework, and dossier Functions have been updated to recognize legacy NPC records.
+Deploy the Functions before using the new dashboard and password management actions.
 
 The website is hosted with GitHub Pages. It updates from \`main\` after the merge (provided GitHub Pages is configured to deploy from \`main\`). **No Firebase Storage, Firestore Rules, or Firebase Hosting changes are required.**
 
@@ -68,7 +72,7 @@ The website is hosted with GitHub Pages. It updates from \`main\` after the merg
 8. Confirm another portal cannot be activated against the same record.
 9. Confirm a duplicate fictional login name is rejected.
 10. Confirm user cannot call activation as a citizen or staff member.
-
-## Scope boundaries
-
-This feature **converts existing NPC or agency-created taxpayer accounts only**. It does not merge already registered portal accounts, reassign existing human users, reset passwords, elevate citizens to staff, or allow a citizen to take over an NPC. Existing account recovery and name-change procedures remain separate features.
+11. Reset the converted citizen's password from their dossier and verify sign-in with the new password.
+12. From **My account**, verify that changing a password requires the current password.
+13. Verify that the citizen homepage shows the taxpayer reference, outstanding balance, and disbursed refunds.
+14. Run a simulation scenario and confirm the converted taxpayer is excluded from generated workload.

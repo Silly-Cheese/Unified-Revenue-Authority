@@ -4,6 +4,7 @@ import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {defaultPolicy,validatePolicy} from "./lib/tax-engine.js";
 import {deriveAccount} from "./lib/treasury-engine.js";
+import {canActivateTaxpayer} from "./lib/portal-access.js";
 import {ECONOMIES,FILING_MODES,SCENARIOS,simulationDate,advanceDate,validateSeed,buildNpc,economicEvents,scenarioCaseNumber} from "./lib/simulation-engine.js";
 
 const database=()=>getFirestore();
@@ -228,6 +229,7 @@ export const runSimulationScenario=onCall(opts,async req=>{
  // Only NPC tax accounts that were actually assessed by a human examiner are eligible.
  const eligibleSnap=await database().collection("treasuryAccounts").where("simulated","==",true).limit(100).get();
  const eligible=eligibleSnap.docs.map(x=>({id:x.id,...x.data()})).filter(x=>{
+  if(typeof x.taxpayerId!=="string"||!/^[A-Za-z0-9]{20}$/.test(x.taxpayerId))return false;
   try{
    const acct=deriveAccount(x);
    if(acct.ownerUid)return false;
@@ -236,7 +238,13 @@ export const runSimulationScenario=onCall(opts,async req=>{
    return true;
   }catch{return false;}
  }).sort((x,y)=>x.id.localeCompare(y.id));
- const selected=eligible.slice(0,Math.min(eligible.length,limitCount*3));
+ const taxpayerRefs=new Map(eligible.map(account=>[account.taxpayerId,database().collection("taxpayers").doc(account.taxpayerId)]));
+ const taxpayers=taxpayerRefs.size?await database().getAll(...taxpayerRefs.values()):[];
+ const unlinked=new Set(taxpayers.filter(doc=>{
+  const taxpayer=doc.data();
+  return taxpayer?.simulated===true&&canActivateTaxpayer(taxpayer);
+ }).map(doc=>doc.id));
+ const selected=eligible.filter(account=>unlinked.has(account.taxpayerId)).slice(0,limitCount*3);
  if(!selected.length)return {ok:true,created:0,reason:"No eligible simulated assessed taxpayer accounts. Generate NPC returns and accept them first."};
  const runRef=database().collection("simulationRuns").doc(),eventRef=database().collection("simulationEvents").doc();
  let result;
@@ -251,8 +259,10 @@ export const runSimulationScenario=onCall(opts,async req=>{
     scenario==="appeal_wave"?"appeal":"refund";
    const targetRef=kind==="refund"?database().collection("treasuryRefunds").doc("SIM_REF_"+c.id):
     database().collection("agencyCases").doc(scenarioCaseId(kind,c.id));
-   const [accountSnap,existing]=await Promise.all([tx.get(accountRef),tx.get(targetRef)]);
-   candidateDocs.push({accountSnap,targetRef,existing,kind,c});
+   const [accountSnap,existing,taxpayerSnap]=await Promise.all([
+    tx.get(accountRef),tx.get(targetRef),tx.get(taxpayerRefs.get(c.taxpayerId))
+   ]);
+   candidateDocs.push({accountSnap,targetRef,existing,taxpayerSnap,kind});
   }
   const picked=[];
   for(const item of candidateDocs){
@@ -260,11 +270,13 @@ export const runSimulationScenario=onCall(opts,async req=>{
    if(item.existing.exists||!item.accountSnap.exists)continue;
    const acct=deriveAccount(item.accountSnap.data());
    if(!acct.simulated||acct.ownerUid)continue;
+   const taxpayer=item.taxpayerSnap.data();
+   if(item.taxpayerSnap.id!==acct.taxpayerId||taxpayer?.simulated!==true||!canActivateTaxpayer(taxpayer))continue;
    if(scenario==="collection_cycle"&&acct.outstandingCents<=0)continue;
    if(scenario==="refund_review"&&acct.refundAvailableCents<=0)continue;
    picked.push({ref:item.targetRef,kind:item.kind,acct});
   }
-  if(!picked.length)error("failed-precondition","Candidate scenarios already exist; use other simulated accounts.");
+  if(!picked.length)error("failed-precondition","No eligible NPC accounts are available for this scenario.");
   for(const {ref,kind,acct} of picked){
    if(kind==="refund"){
     const amount=Math.max(1,Math.floor(acct.refundAvailableCents*0.6));

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
- canAccessTaxpayerRecord,canActivateTaxpayer,
+ canAccessTaxpayerRecord,canActivateTaxpayer,canResetConvertedPortal,
  validatePortalName,validatePortalPassword
 } from "../lib/portal-access.js";
 import {canCitizenReadCase} from "../lib/case-workflow.js";
@@ -31,6 +31,18 @@ test("Passwords are validated but never returned in account records",()=>{
  assert.throws(()=>validatePortalPassword(" ".repeat(12)));
  assert.throws(()=>validatePortalPassword("a".repeat(129)));
  assert.throws(()=>validatePortalPassword(null));
+});
+test("Only an active converted citizen linked to the selected taxpayer is eligible for recovery",()=>{
+ const taxpayer={status:"active",ownerUid:uid,portalName:"Jordan Vale"};
+ const profile={status:"active",role:"citizen",taxpayerId:id,portalOrigin:"converted_npc"};
+ assert.equal(canResetConvertedPortal(id,taxpayer,profile),true);
+ assert.equal(canResetConvertedPortal(id,taxpayer,{...profile,portalOrigin:"converted_agency"}),true);
+ assert.equal(canResetConvertedPortal(id,taxpayer,{...profile,portalOrigin:undefined}),false);
+ assert.equal(canResetConvertedPortal(id,taxpayer,{...profile,role:"staff"}),false);
+ assert.equal(canResetConvertedPortal(id,taxpayer,{...profile,status:"suspended"}),false);
+ assert.equal(canResetConvertedPortal(id,taxpayer,{...profile,taxpayerId:"other"}),false);
+ assert.equal(canResetConvertedPortal(id,{...taxpayer,status:"archived"},profile),false);
+ assert.equal(canResetConvertedPortal(id,{...taxpayer,ownerUid:null},profile),false);
 });
 test("Converted NPC retains access to legacy documents with ownerUid null",()=>{
  assert.equal(canAccessTaxpayerRecord(actor,{taxpayerId:id,ownerUid:null}),true);

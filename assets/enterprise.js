@@ -1,13 +1,13 @@
 // Generation 6 — Institutional Intelligence, Registry Search and Document Studio.
 import {call} from "./auth.js";
-import {openPortalActivation} from "./portal.js";
+import {openPortalActivation,openPortalReset,portalStatus} from "./portal.js";
 import {escapeHTML as E,centsText as cash,csvText,createCSV,printDocument} from "./documents.js";
 
 export const enterprisePages=["executive","registry","dossier","documents"];
 const canStaff=s=>s.me?.role&&s.me.role!=="citizen";
 const executive=s=>["commissioner","supervisor"].includes(s.me?.role);
 let year=2026,report=null,issued=[],registry=[],registryNext=null,registryPrefix="",registryCursor=null;
-let registryStack=[],selectedTaxpayerId="",dossier=null,recordKind="statement",recordId="";
+let registryStack=[],selectedTaxpayerId="",dossier=null,dossierViewer="",recordKind="statement",recordId="";
 const statuses={
  accepted:"Accepted",submitted:"Pending examiner review",draft:"Saved draft",
  information_requested:"Information requested",rejected:"Correction requested"
@@ -89,14 +89,15 @@ function registryPage(s,h){
  if(!canStaff(s))return title(s,h,"Restricted registry","Personnel access is required.");
  const rows=registry.map(x=>'<tr><td><strong>'+E(x.fullName)+'</strong><div class="tax-sub">'+E(x.taxpayerNumber)+'</div></td>'+
  '<td>'+E(x.type)+'</td><td>'+E(x.region||"—")+'</td><td>'+pill(x.status,x.status==="active"?"good":"neutral")+'</td>'+
- '<td>'+pill(x.simulated?"Generated NPC":x.ownerLinked?"Registered player":"Agency record",x.simulated?"gold":"neutral")+'</td>'+
+ '<td>'+pill(x.simulated?"Generated NPC":x.portalName?"Agency record":x.ownerLinked?"Registered player":"Agency record",x.simulated?"gold":"neutral")+'</td>'+
+ '<td>'+pill(portalStatus(x),x.ownerLinked?"good":"neutral")+(x.portalName?'<div class="tax-sub">'+E(x.portalName)+'</div>':"")+'</td>'+
  '<td><button class="link" data-e-dossier="'+E(x.id)+'">Open dossier</button>'+
- (s.me?.role==="commissioner"&&!x.ownerLinked&&x.status==="active"?'<button class="link" data-e-activate="'+E(x.id)+'">Create portal</button>':"")+'</td></tr>');
+ (s.me?.role==="commissioner"&&portalStatus(x)==="Ready to convert"?'<button class="link" data-e-activate="'+E(x.id)+'">Create portal</button>':"")+'</td></tr>');
  return title(s,h,"Enterprise taxpayer registry","Search taxpayer names, browse in pages, and open comprehensive financial and casework profiles.")+
  '<div class="e-hero compact"><div><div class="e-overline">CITIZEN SERVICES · INSTITUTIONAL REGISTRY</div><h2>Every taxpayer has a story.</h2><p>One account dossier for all filings, assessments, payments, refunds and official RP correspondence.</p></div></div>'+
  '<section class="card e-card"><form id="e-registry-search" class="e-registry-search"><div><label for="e-prefix">Search by beginning of taxpayer name (case-sensitive)</label><input class="input" id="e-prefix" maxlength="60" placeholder="e.g., Jordan" value="'+E(registryPrefix)+'"></div><button class="button" type="submit">Search registry</button><button class="button secondary" type="button" id="e-clear-search">Clear</button></form>'+
  '<div class="e-coverage-row" style="margin-bottom:10px"><strong>Alphabetical taxpayer directory</strong><span>Up to 30 records per page · '+(registryStack.length+1===1?"Page 1":"Page "+(registryStack.length+1))+'</span></div>'+
- tbl(["Taxpayer","Type","Region","Status","Account type",""],rows,"No records match this name prefix on the selected page.")+
+ tbl(["Taxpayer","Type","Region","Status","Record origin","Portal access",""],rows,"No records match this name prefix on the selected page.")+
  '<div class="e-pagination"><button class="button secondary" id="e-prev-page" '+(!registryStack.length?"disabled":"")+'>Previous page</button><button class="button secondary" id="e-next-page" '+(!registryNext?"disabled":"")+'>Next page</button></div></section>';
 }
 function dossierPage(s,h){
@@ -125,6 +126,7 @@ function dossierPage(s,h){
  '<div class="e-stat-list">'+row("Full name",x.fullName)+row("Taxpayer reference",x.taxpayerNumber)+
  row("Classification",x.type)+row("Region",x.region)+row("Record status",x.status)+
  row("Account origin",x.simulated?"Fictional NPC":"Registered/agency taxpayer")+
+ row("Portal access",portalStatus(x))+(x.portalName?row("Portal login name",x.portalName):"")+
  row("Date registered",toDate(x.createdAt))+'</div></section>'+
  '<section class="card e-card">'+heading("Financial standing")+
  '<div class="e-stat-list">'+row("Tax assessed",cash(t.assessedCents))+
@@ -136,7 +138,8 @@ function dossierPage(s,h){
  '<section class="card e-card">'+heading("Connected agency records","Up to 100 entries per category")+
  '<div class="e-dossier-list">'+activity+'</div></section>'+
  '<div class="e-action-strip"><button class="button" id="e-print-statement">Print taxpayer account statement</button>'+
- (s.me?.role==="commissioner"&&!x.ownerLinked&&x.status==="active"?'<button class="button secondary" id="e-activate-portal">Convert to portal account</button>':"")+
+ (s.me?.role==="commissioner"&&portalStatus(x)==="Ready to convert"?'<button class="button secondary" id="e-activate-portal">Create portal login</button>':"")+
+ (s.me?.role==="commissioner"&&x.ownerLinked&&x.portalName&&x.status==="active"?'<button class="button secondary" id="e-reset-portal">Reset portal password</button>':"")+
  (canStaff(s)?'<button class="button secondary" id="e-registry-return">Return to registry</button>':"")+'</div>'+
  '<p class="tax-disclaimer">All taxpayer accounts, filings and financial figures are fictional. Document Studio prints a clearly labeled RP record.</p>';
 }
@@ -262,11 +265,17 @@ export async function enterpriseLoad(s){
  if(["dossier","documents"].includes(s.page)){
   const id=canStaff(s)?selectedTaxpayerId:s.me?.taxpayerId;
   if(!id){dossier=null;return;}
+  const viewer=s.user?.uid;
   const r=await call("getTaxpayerDossier",{taxpayerId:id});
-  dossier=r.data;
+  const currentId=canStaff(s)?selectedTaxpayerId:s.me?.taxpayerId;
+  if(s.user?.uid===viewer&&currentId===id){
+   dossier=r.data;
+   dossierViewer=viewer;
+  }
  }
 }
 export function enterprisePageHTML(s,h){
+ if(dossierViewer!==s.user?.uid)dossier=null;
  if(s.page==="executive")return execPage(s,h);
  if(s.page==="registry")return registryPage(s,h);
  if(s.page==="dossier")return dossierPage(s,h);
@@ -337,6 +346,9 @@ export function enterprisePageBind(s,h){
  document.getElementById("e-activate-portal")?.addEventListener("click",()=>{
   if(s.me?.role!=="commissioner"||!dossier)return;
   openPortalActivation(dossier.taxpayer,{modal:h.modal,toast:h.toast,reload:reloadPage.bind(null,h)});
+ });
+ document.getElementById("e-reset-portal")?.addEventListener("click",()=>{
+  if(s.me?.role==="commissioner"&&dossier)openPortalReset(dossier.taxpayer,h);
  });
  document.querySelectorAll("[data-e-dossier]").forEach(button=>button.addEventListener("click",()=>{
   selectedTaxpayerId=button.dataset.eDossier;dossier=null;location.hash="#dossier";

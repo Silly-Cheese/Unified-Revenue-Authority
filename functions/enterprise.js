@@ -5,6 +5,7 @@ import {onCall,HttpsError} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {YEARS,SAMPLE_LIMIT,reportYear,summarizeAccounts,statusCounts,caseTypeCounts,fiscalTrend,coverage,validateReportDraft} from "./lib/reporting.js";
+import {canAccessTaxpayerRecord} from "./lib/portal-access.js";
 
 const opts={cors:true,invoker:"public"};
 const db=()=>getFirestore();
@@ -158,12 +159,13 @@ export const listAgencyRegistryPage=onCall(opts,async req=>{
   if(!doc.exists)fail("failed-precondition","The registry cursor no longer exists. Restart the search.");
   query=query.startAfter(doc);
  }
- const snap=await query.limit(30).get();
- return {items:snap.docs.map(d=>({id:d.id,fullName:d.data().fullName||"",
+ const snap=await query.limit(31).get();
+ const page=snap.docs.slice(0,30);
+ return {items:page.map(d=>({id:d.id,fullName:d.data().fullName||"",
   taxpayerNumber:d.data().taxpayerNumber||"",type:d.data().type||"unknown",
   region:d.data().region||"",status:d.data().status||"unknown",
-  simulated:d.data().simulated===true,ownerLinked:!!d.data().ownerUid})),
-  nextCursor:snap.size===30?snap.docs[snap.docs.length-1].id:null,
+  simulated:d.data().simulated===true,ownerLinked:!!d.data().ownerUid,portalName:d.data().portalName||null})),
+  nextCursor:snap.size>30?page[page.length-1].id:null,
   pageSize:30,searchMode:"case-sensitive name prefix"};
 });
 
@@ -213,7 +215,8 @@ export const getTaxpayerDossier=onCall(opts,async req=>{
  const records={};
  for(const [i,name] of names.entries()){
   records[name]=results[i].docs
-   .filter(d=>name!=="agencyCases"||d.data().kind!=="investigation"||EXAMINER.includes(user.role))
+   .filter(d=>(agency||canAccessTaxpayerRecord(user,d.data()))&&
+    (name!=="agencyCases"||d.data().kind!=="investigation"||EXAMINER.includes(user.role)))
    .map(d=>summarizeDoc(d,name));
  }
  const totals=summarizeAccounts(records.treasuryAccounts);

@@ -1,5 +1,5 @@
 import {auth,db,functions} from "./firebase.js";
-import {createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,updateProfile,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
+import {createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,updateProfile,onAuthStateChanged,EmailAuthProvider,reauthenticateWithCredential,updatePassword} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 import {doc,getDoc} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 import {httpsCallable} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js";
 
@@ -29,6 +29,13 @@ export async function register(name,password){
 export async function login(name,password){
  if(!validateName(name))throw Error("Enter the full name used at registration.");
  return (await signInWithEmailAndPassword(auth,await internalAddress(name),password)).user;
+}
+export async function changePassword(currentPassword,newPassword){
+ const user=auth.currentUser;
+ if(!user?.email)throw Error("Sign in again to change your password.");
+ const credential=EmailAuthProvider.credential(user.email,currentPassword);
+ await reauthenticateWithCredential(user,credential);
+ await updatePassword(user,newPassword);
 }
 export async function logout(){return signOut(auth);}
 export const call=(name,data={})=>httpsCallable(functions,name)(data);
