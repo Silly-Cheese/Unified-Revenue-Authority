@@ -4,13 +4,14 @@ import {treasuryPages,treasuryPageHTML,treasuryPageBind,treasuryLoad} from "./tr
 import {casePages,casePageHTML,casePageBind,caseLoad} from "./cases.js";
 import {simulationPages,simulationPageHTML,simulationPageBind,simulationLoad} from "./simulation.js";
 import {openPasswordChange,openPortalActivation,openPortalReset,portalStatus} from "./portal.js";
+import {operationsPages,operationsLoad,operationsHTML,operationsBind,resetOperations,selectOperationsTaxpayer} from "./operations.js";
 import {centsText} from "./documents.js";
 import {enterprisePages,enterprisePageHTML,enterprisePageBind,enterpriseLoad} from "./enterprise.js";
 import {authListener,profile,register,login,logout,call} from "./auth.js";
 import {collection,getDocs,query,orderBy,limit} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 const app=document.getElementById("app");
-const state={user:null,me:null,authMode:"login",authBusy:false,page:"dashboard",loading:false,overview:null,portalOverview:null,taxpayers:[],users:[],events:[],search:"",menu:false};
+const state={user:null,me:null,authMode:"login",authBusy:false,page:"dashboard",routeTarget:"",loading:false,overview:null,portalOverview:null,taxpayers:[],users:[],events:[],search:"",menu:false};
 const paths={
  landmark:'<path d="m3 10 9-6 9 6M4 10h16M6 10v9M10 10v9M14 10v9M18 10v9M3 21h18"/>',
  grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
@@ -45,6 +46,8 @@ function toast(message,bad=false){document.querySelector(".toast")?.remove();con
 function authError(e){const raw=e?.code||"";if(raw.includes("email-already-in-use"))return "An account already uses this name. Please sign in or choose another fictional name.";if(raw.includes("invalid-credential")||raw.includes("wrong-password")||raw.includes("user-not-found"))return "Incorrect name or password.";if(raw.includes("too-many-requests"))return "Too many attempts. Try again later.";if(raw.includes("network-request-failed"))return "Network unavailable. Check your internet connection.";return e?.message||"Something went wrong. Please try again.";}
 function renderAuth(err=""){
  resetTaxWorkspace();
+ resetOperations();
+ document.querySelectorAll(".modal-backdrop,#global-command").forEach(node=>node.remove());
  app.innerHTML='<div class="auth-shell"><section class="auth-cover"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED<br>REVENUE AUTHORITY</span></div><div><div class="eyebrow">The nation’s financial administration</div><h1>Precision in every <em>decision.</em></h1><p class="auth-copy">A complete fictional revenue institution—taxpayer services, agency operations, treasury administration, and financial accountability.</p></div><div class="auth-foot">OFFICIAL RP SIMULATION · NO REAL TAX OR FINANCIAL SERVICES</div></section><section class="auth-side"><div class="auth-card"><div class="eyebrow" style="color:#a48655;margin-bottom:14px">Secure agency access</div><h2>'+(state.authMode==="login"?"Welcome back":"Establish your account")+'</h2><p>'+(state.authMode==="login"?"Sign in to your secure roleplay account.":"Register a fictional identity. No real email address is required.")+'</p><div class="switch"><button type="button" data-mode="login" class="'+(state.authMode==="login"?"active":"")+'">Sign in</button><button type="button" data-mode="register" class="'+(state.authMode==="register"?"active":"")+'">Create account</button></div><form id="auth-form"><div class="field"><label for="fullName">Full character name</label><input id="fullName" class="input" autocomplete="username" required maxlength="60" placeholder="e.g., Jordan Vale"></div><div class="field"><label for="password">Password</label><input id="password" class="input" type="password" required minlength="'+(state.authMode==="register"?"10":"1")+'" autocomplete="'+(state.authMode==="register"?"new-password":"current-password")+'" placeholder="Enter your password"></div>'+(state.authMode==="register"?'<div class="field"><label for="confirm">Confirm password</label><input id="confirm" class="input" type="password" required minlength="10" autocomplete="new-password" placeholder="Re-enter your password"></div>':'')+'<div id="form-message">'+(err?'<div class="error">'+esc(err)+'</div>':"")+'</div><button type="submit" class="button full" id="auth-submit">'+(state.authMode==="login"?"Access your account":"Create roleplay account")+'</button></form><div class="notice"> '+icon("shield")+' <strong>Roleplay accounts:</strong> Your chosen name and password are your login credentials. No email verification or real personal information is necessary. Password recovery requires an agency administrator.</div><div class="mini-footer">Unified Revenue Authority · Fictional government simulation</div></div></section></div>';
  document.querySelectorAll("[data-mode]").forEach(el=>el.addEventListener("click",()=>{state.authMode=el.dataset.mode;renderAuth();}));
  document.getElementById("auth-form").addEventListener("submit",async event=>{
@@ -63,6 +66,7 @@ function renderAuth(err=""){
 const adminNav=[["dashboard","grid","Command center"],["executive","chart","Executive intelligence"],["registry","users","Enterprise registry"],["taxpayers","users","Taxpayer registry"],["filings","file","Tax filings"],["processing","search","Return processing"],["assessments","receipt","Assessments"],["treasury","bank","Treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["ledger","chart","General ledger"],["examinations","search","Examinations"],["appeals","file","Administrative appeals"],["collections","wallet","Collections"],["investigations","shield","Investigations"],["simulation","layers","Simulation command"],["documents","file","Document Studio"],["modules","layers","Agency divisions"],["activity","activity","Activity & audit"],["account","settings","My account"]];
 function visiblePages(){
  const pages=isStaff()?[...adminNav]:[["dashboard","grid","My overview"],["filings","file","Tax filings"],["assessments","receipt","Assessments"],["treasury","bank","My treasury"],["payments","wallet","Payments"],["refunds","receipt","Refunds"],["plans","clock","Payment plans"],["appeals","file","My appeals"],["dossier","users","My tax dossier"],["documents","file","Document Studio"],["account","settings","My account"]];
+ pages.splice(isStaff()?6:2,0,["business-taxes","bank","Business tax accounts"],["calendar","clock","Tax calendar"],["wage-statements","file","Wage statements"],["notices","file","Notices & responses"]);
  if(isCommissioner()){pages.splice(2,0,["staff","shield","Personnel & roles"]);pages.push(["taxpolicy","settings","Tax policy"]);}
  if(state.me?.role==="staff"){const i=pages.findIndex(p=>p[0]==="investigations");if(i!==-1)pages.splice(i,1);}
  return pages;
@@ -75,9 +79,9 @@ function pageHeader(title,sub,action=""){return '<div class="page-head"><div><di
 function kpi(label,value,foot,ico){return '<div class="kpi"><div class="kpi-label">'+esc(label)+icon(ico)+'</div><div class="kpi-value">'+esc(value)+'</div><div class="kpi-foot">'+esc(foot)+'</div></div>';}
 function renderShell(){
  if(!state.me){renderAuth();return;}
- const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies",treasury:"Treasury command",payments:"Payments & receipts",refunds:"Refund operations",plans:"Payment arrangements",ledger:"General ledger",examinations:"Examinations & audits",appeals:"Administrative appeals",collections:"Revenue collections",investigations:"Special investigations",simulation:"Simulation command",executive:"Executive intelligence",registry:"Enterprise registry",dossier:"Taxpayer dossier",documents:"Document Studio"}[state.page]||"Operations";
- app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><button class="e-global-find" id="global-search" type="button" aria-label="Find a module (Control K)">'+icon("search")+' <span class="label">Find a module</span><kbd>Ctrl K</kbd></button><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY · GENERATION 6 / 6</div></main></div></div>';
- document.getElementById("logout").addEventListener("click",async()=>{await logout();state.user=null;state.me=null;state.portalOverview=null;state.page="dashboard";renderAuth();});
+ const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies",treasury:"Treasury command",payments:"Payments & receipts",refunds:"Refund operations",plans:"Payment arrangements",ledger:"General ledger",examinations:"Examinations & audits",appeals:"Administrative appeals",collections:"Revenue collections",investigations:"Special investigations",simulation:"Simulation command",executive:"Executive intelligence",registry:"Enterprise registry",dossier:"Taxpayer dossier",documents:"Document Studio"}[state.page]||visiblePages().find(page=>page[0]===state.page)?.[2]||"Operations";
+ app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><button class="e-global-find" id="global-search" type="button" aria-label="Find a module (Control K)">'+icon("search")+' <span class="label">Find a module</span><kbd>Ctrl K</kbd></button><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY</div></main></div></div>';
+ document.getElementById("logout").addEventListener("click",async()=>{await logout();state.user=null;state.me=null;state.portalOverview=null;state.actionCenter=null;state.overview=null;state.treasuryOverview=null;state.workload=null;state.events=[];state.page="dashboard";renderAuth();});
  document.getElementById("global-search")?.addEventListener("click",showCommandPalette);
  document.getElementById("mobile-menu")?.addEventListener("click",()=>{state.menu=!state.menu;renderShell();});
  document.getElementById("shade")?.addEventListener("click",()=>{state.menu=false;renderShell();});
@@ -85,6 +89,7 @@ function renderShell(){
  bindPage();
 }
 function pageHTML(){
+ if(operationsPages.includes(state.page))return operationsHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(taxPages.includes(state.page))return taxPageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(treasuryPages.includes(state.page))return treasuryPageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  if(casePages.includes(state.page))return casePageHTML(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
@@ -100,16 +105,20 @@ function pageHTML(){
 function dashboardPage(){
  if(!isStaff())return citizenDashboard();
  const summary=state.overview||{};
- return pageHeader("Agency command center","A unified view of operations, people, and the founding revenue administration.")+
- '<div class="stat-strip"><div><div class="eyebrow" style="color:#d4b787">OFFICE OF THE COMMISSIONER</div><h2 style="margin-top:8px">Good to see you, '+esc(state.me.displayName)+'.</h2><p>Your revenue administration now includes taxpayer registration, individual and business filings, examination decisions and formal assessments.</p></div><button class="button" id="viewRegistry">'+icon("users")+' Open taxpayer registry</button></div>'+
- '<div class="kpis">'+kpi("Registered taxpayers",String(summary.taxpayers??"—"),"Live agency registry","users")+kpi("Personnel accounts",String(summary.personnel??"—"),"Authorized employees","shield")+kpi("Returns awaiting review",String(summary.pendingReturns??"—"),"Submitted cases awaiting examination","file")+kpi("Treasury collected","$0.00","Accounting ledger · Gen 3","bank")+'</div>'+
- '<div class="grid-two"><div class="card card-pad"><div class="section-head"><h2>Agency division roadmap</h2><button class="link" id="viewModules">View all divisions →</button></div>'+[
- ["01","Foundational administration","Active"],
- ["02","Tax filing & assessments","Available now"],
- ["03","Treasury & refunds","Generation 3"],
- ["04","Examinations & appeals","Active"],
- ["05","Fictional economy and RP simulation","Active"]
- ].map(r=>'<div class="activity-row"><div class="activity-dot">'+esc(r[0])+'</div><div style="flex:1"><strong>'+esc(r[1])+'</strong><p>'+esc(r[2])+'</p></div><span class="pill '+(r[2]!=="Active"?"gray":"")+'">'+esc(r[2]==="Active"?"Available":"Planned")+'</span></div>').join("")+'</div><div class="card card-pad"><div class="section-head"><h2>Recent agency activity</h2></div>'+recentEvents(4)+'</div></div>';
+ const treasury=state.treasuryOverview;
+ const workload=state.workload;
+ const pending=treasury ? Number(treasury.pendingRefunds || 0) : "—";
+ return pageHeader("Agency command center","Review the agency’s current workload and Treasury position.")+
+ '<div class="kpis">'+kpi("Registered taxpayers",String(summary.taxpayers??"—"),"Live agency registry","users")+
+ kpi("Treasury cash",treasury?centsText(treasury.chart?.[1000]?.balanceCents||0):"—","Net simulated cash balance","bank")+
+ kpi("Returns awaiting review",String(summary.pendingReturns??"—"),"Submitted returns","file")+
+ kpi("Refund requests",String(pending),"Awaiting authorization","receipt")+'</div>'+
+ '<div class="grid-two"><section class="card card-pad"><div class="section-head"><h2>Agency work queue</h2></div><div class="t-actions">'+
+ '<a class="t-action" href="#processing"><strong>Return processing</strong><small>'+esc(summary.pendingReturns??"—")+' submitted returns</small></a>'+
+ '<a class="t-action" href="#refunds"><strong>Refund operations</strong><small>'+esc(pending)+' pending requests</small></a>'+
+ '<a class="t-action" href="#examinations/overdue"><strong>Overdue cases</strong><small>'+esc(workload?.overdue??"—")+' across the agency</small></a>'+
+ '<a class="t-action" href="#registry"><strong>Taxpayer registry</strong><small>Find a taxpayer and open their dossier</small></a></div></section>'+
+ '<section class="card card-pad"><div class="section-head"><h2>Recent agency activity</h2></div>'+recentEvents(4)+'</section></div>';
 }
 function citizenDashboard(){
  const overview=state.portalOverview;
@@ -121,11 +130,17 @@ function citizenDashboard(){
  '<div class="kpis">'+
  kpi("Outstanding taxes",overview?centsText(overview.outstandingCents):"—",overview?"Total across your tax accounts":detailText,"wallet")+
  kpi("Refunds paid",overview?centsText(overview.refundsDisbursedCents):"—",overview?"Total disbursed by the Treasury":detailText,"receipt")+
- '</div><section class="card card-pad"><div class="section-head"><h2>Portal services</h2></div>'+
+ '</div>'+citizenActions()+'<section class="card card-pad"><div class="section-head"><h2>Portal services</h2></div>'+
  '<div class="t-actions"><a href="#filings" class="t-action"><strong>Tax filings</strong><small>Start a return or track an existing filing</small></a>'+
  '<a href="#treasury" class="t-action"><strong>My Treasury</strong><small>Review balances and payment activity</small></a>'+
  '<a href="#refunds" class="t-action"><strong>Refunds</strong><small>Request a refund or check its status</small></a>'+
  '<a href="#appeals" class="t-action"><strong>My appeals</strong><small>View cases and correspondence</small></a></div></section>';
+}
+function citizenActions(){
+ const center=state.actionCenter;
+ if(!center)return '<section class="card card-pad ops-panel"><h2>Action center</h2><p class="help">'+(state.loading?"Loading taxpayer tasks…":"Taxpayer tasks are temporarily unavailable.")+'</p></section>';
+ return '<section class="card card-pad ops-panel"><div class="section-head"><h2>Action center</h2><span class="pill gray">'+center.items.length+' updates</span></div>'+
+ (center.items.length?'<div class="ops-request-list">'+center.items.map(item=>'<a class="t-action" href="#'+esc(item.route)+'"><strong>'+esc(item.title)+'</strong><small>'+esc(item.detail)+(item.due?' · Due '+esc(item.due):'')+'</small></a>').join("")+'</div>':'<p class="help">You have no open tasks or recent decisions.</p>')+'</section>';
 }
 function recentEvents(n=20){
  return (state.events?.length?state.events.slice(0,n).map(e=>'<div class="activity-row"><div class="activity-dot">'+icon("activity")+'</div><div><strong>'+esc(e.action||"Agency event")+'</strong><p>'+esc(e.detail||"Recorded activity")+'</p><p>'+esc(formatDate(e.createdAt))+'</p></div></div>').join(""):'<div class="empty">'+icon("clock")+'<div>No activity recorded yet.<br>Actions will appear here as your agency operates.</div></div>');
@@ -184,11 +199,13 @@ function viewTaxpayer(id){
  const activate=isCommissioner()&&status==="Ready to convert";
  const reset=isCommissioner()&&status==="Portal linked"&&t.status==="active"&&t.portalName;
  modal("Taxpayer record",'<div class="modal-body"><div class="detail-grid">'+detail("Name",t.fullName)+detail("Taxpayer reference",t.taxpayerNumber||t.id)+detail("Classification",t.type)+detail("Region",t.region)+detail("Status",t.status||"active")+detail("Portal access",status)+(t.portalName?detail("Portal login name",t.portalName):"")+detail("Created",formatDate(t.createdAt))+'</div><div class="alert" style="margin-top:17px">'+esc(t.notes||"No internal notes provided.")+'</div></div><div class="modal-bottom">'+
+ (t.type==="business"?'<button class="button secondary" id="openBusinessTax">Business tax accounts</button>':"")+
  (activate?'<button class="button" id="activateTaxPortal">Create portal login</button>':"")+
  (reset?'<button class="button" id="resetTaxPortal">Reset portal password</button>':"")+
  (isCommissioner()&&t.status!=="archived"&&!t.ownerUid?'<button class="button danger" id="archiveTax">Archive record</button>':"")+
  '<button class="button secondary" data-close>Close</button></div>',el=>{
  const handlers={modal,toast,reload:loadPage,authError};
+ el.querySelector("#openBusinessTax")?.addEventListener("click",()=>{el.remove();selectOperationsTaxpayer(t.id);location.hash="business-taxes";});
  el.querySelector("#activateTaxPortal")?.addEventListener("click",()=>{
   el.remove();
   openPortalActivation(t,handlers);
@@ -209,8 +226,7 @@ function bindPage(){
  casePageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  simulationPageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  enterprisePageBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
- document.getElementById("viewRegistry")?.addEventListener("click",()=>{location.hash="taxpayers";});
- document.getElementById("viewModules")?.addEventListener("click",()=>{location.hash="modules";});
+ operationsBind(state,{pageHeader,icon,modal,toast,renderShell,reload:loadPage,state});
  document.getElementById("newTaxpayer")?.addEventListener("click",newTaxpayer);
  document.getElementById("accountSignout")?.addEventListener("click",()=>logout());
  document.getElementById("accountPassword")?.addEventListener("click",()=>openPasswordChange({modal,toast,authError}));
@@ -227,26 +243,33 @@ function filteredTaxRows(){
  return arr.length?arr.map(t=>'<tr><td class="name">'+esc(t.fullName)+'</td><td>'+esc(t.taxpayerNumber||t.id)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.region||"—")+'</td><td><span class="pill '+(t.status==="archived"?"gray":"")+'">'+esc(t.status||"active")+'</span></td><td>'+esc(portalStatus(t))+(t.portalName?'<div class="tax-sub">'+esc(t.portalName)+'</div>':"")+'</td><td><button class="link" data-view-tax="'+esc(t.id)+'">View</button></td></tr>').join(""):'<tr><td colspan="7"><div class="empty">No matching taxpayers in the recent records.</div></td></tr>';
 }
 function wireTaxButtons(){document.querySelectorAll("[data-view-tax]").forEach(b=>b.addEventListener("click",()=>viewTaxpayer(b.dataset.viewTax)));}
+let loadNumber=0;
 async function loadPage(){
  if(!state.user||!state.me)return;
+ const load=++loadNumber,uid=state.user.uid;
  state.loading=true;
  try{
   const jobs=[];
   if(isStaff()){
    // Avoid loading the command-center aggregate on unrelated pages.
    // This prevents a failing overview request from masking enterprise/registry results.
-   if(state.page==="dashboard")
-    jobs.push(call("getOverview").then(r=>state.overview=r.data));
+   if(state.page==="dashboard"){
+    state.overview=null;state.treasuryOverview=null;state.workload=null;
+    jobs.push(call("getOverview").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.overview=r.data;}),
+     call("getTreasuryOverview").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.treasuryOverview=r.data;}),
+     call("getAgencyWorkload").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.workload=r.data;}));
+   }
    if(state.page==="dashboard"||state.page==="activity")
-    jobs.push(getDocs(query(collection(db,"auditLogs"),orderBy("createdAt","desc"),limit(25))).then(s=>state.events=s.docs.map(d=>({id:d.id,...d.data()}))));
+    jobs.push(getDocs(query(collection(db,"auditLogs"),orderBy("createdAt","desc"),limit(25))).then(s=>{if(load===loadNumber&&state.user?.uid===uid)state.events=s.docs.map(d=>({id:d.id,...d.data()}));}));
    if(state.page==="taxpayers")
-    jobs.push(getDocs(query(collection(db,"taxpayers"),orderBy("createdAt","desc"),limit(200))).then(s=>state.taxpayers=s.docs.map(d=>({id:d.id,...d.data()}))));
+    jobs.push(getDocs(query(collection(db,"taxpayers"),orderBy("createdAt","desc"),limit(200))).then(s=>{if(load===loadNumber&&state.user?.uid===uid)state.taxpayers=s.docs.map(d=>({id:d.id,...d.data()}));}));
    if(state.page==="staff"&&isCommissioner())
-    jobs.push(getDocs(query(collection(db,"users"),orderBy("createdAt","desc"),limit(100))).then(s=>state.users=s.docs.map(d=>({id:d.id,...d.data()}))));
+    jobs.push(getDocs(query(collection(db,"users"),orderBy("createdAt","desc"),limit(100))).then(s=>{if(load===loadNumber&&state.user?.uid===uid)state.users=s.docs.map(d=>({id:d.id,...d.data()}));}));
   }
   if(state.page==="dashboard"&&!isStaff()){
    const uid=state.user.uid;
-   state.portalOverview=null;
+   state.portalOverview=null;state.actionCenter=null;
+   jobs.push(call("getTaxpayerActionCenter").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.actionCenter=r.data;}));
    jobs.push(call("getTaxpayerPortalOverview").then(r=>{
     if(state.user?.uid===uid)state.portalOverview=r.data;
    }));
@@ -256,14 +279,17 @@ async function loadPage(){
   if(casePages.includes(state.page))jobs.push(caseLoad(state));
   if(simulationPages.includes(state.page))jobs.push(simulationLoad(state));
   if(enterprisePages.includes(state.page))jobs.push(enterpriseLoad(state));
-  await Promise.all(jobs);
- }catch(e){toast("Could not load all agency records: "+authError(e),true);}
- finally{state.loading=false;renderShell();}
+  if(operationsPages.includes(state.page))jobs.push(operationsLoad(state));
+  const results=await Promise.allSettled(jobs);
+  const failed=results.find(result=>result.status==="rejected");
+  if(failed&&load===loadNumber&&state.user?.uid===uid)toast("Could not load all agency records: "+authError(failed.reason),true);
+ }finally{if(load===loadNumber&&state.user?.uid===uid){state.loading=false;renderShell();}}
 }
 async function enter(){
- state.page=(location.hash||"#dashboard").slice(1);
- if(!isStaff()&&!["dashboard","account","filings","assessments","treasury","payments","refunds","plans","appeals","dossier","documents"].includes(state.page))state.page="dashboard";
- if(!["dashboard","account","taxpayers","staff","activity","modules","filings","processing","assessments","taxpolicy","treasury","payments","refunds","plans","ledger","examinations","appeals","collections","investigations","simulation","executive","registry","dossier","documents"].includes(state.page))state.page="dashboard";
+ const [page,target=""]=(location.hash||"#dashboard").slice(1).split("/");
+ state.page=page;
+ state.routeTarget=/^[A-Za-z0-9_-]{1,150}$/.test(target)?target:"";
+ if(!visiblePages().some(row=>row[0]===page)&&!(page==="dossier"&&isStaff())){state.page="dashboard";state.routeTarget="";}
  if(state.page==="taxpolicy"&&!isCommissioner())state.page="dashboard";
  if(state.page==="ledger"&&!isStaff())state.page="dashboard";
  if(["executive","registry"].includes(state.page)&&!isStaff())state.page="dashboard";
@@ -314,7 +340,7 @@ window.addEventListener("hashchange",()=>{if(state.me){state.page=(location.hash
 authListener(async user=>{
  if(state.authBusy)return;
  state.user=user;
- state.portalOverview=null;
+ state.portalOverview=null;state.actionCenter=null;state.overview=null;state.workload=null;state.treasuryOverview=null;state.events=[];
  if(!user){state.me=null;renderAuth();return;}
  try{
   const account=await profile(user.uid);

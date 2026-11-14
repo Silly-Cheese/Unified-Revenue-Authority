@@ -3,6 +3,8 @@
 import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
 import {defaultPolicy,validatePolicy} from "./lib/tax-engine.js";
+import {defaultSchedule, periodDates} from "./lib/filing-calendar.js";
+import {storeSubmission} from "./lib/return-history.js";
 import {deriveAccount} from "./lib/treasury-engine.js";
 import {canActivateTaxpayer} from "./lib/portal-access.js";
 import {ECONOMIES,FILING_MODES,SCENARIOS,simulationDate,advanceDate,validateSeed,buildNpc,economicEvents,scenarioCaseNumber} from "./lib/simulation-engine.js";
@@ -133,7 +135,9 @@ export const generateSimulationPopulation=onCall(opts,async req=>{
   const loaded={};
   for(const type of types){
    const ref=policyRef(year,type),snap=await tx.get(ref);
-   loaded[type]={ref,snap,policy:snap.exists?validatePolicy(snap.data()):defaultPolicy(year,type)};
+   const calendarRef=database().collection("filingSchedules").doc(ref.id);
+   const calendar=(await tx.get(calendarRef)).data()||defaultSchedule(type,year);
+   loaded[type]={ref,snap,policy:snap.exists?validatePolicy(snap.data()):defaultPolicy(year,type),calendar,calendarRef};
   }
   let countFlags=0,reportedIncomeCents=0;
   for(const [i,p] of prepared.entries()){
@@ -151,19 +155,23 @@ export const generateSimulationPopulation=onCall(opts,async req=>{
     simulationBatchId:runRef.id,simulatedTaxYear:year,scenarioMode:mode,
     createdBy:a.uid,createdAt:FieldValue.serverTimestamp()
    });
-   tx.create(p.returnRef,{
+   const dates=periodDates(p.type,year,1,loaded[p.type].calendar);
+   const entry={
     taxpayerId:taxId,taxpayerName:name,ownerUid:null,
     returnType:p.type,taxYear:year,caseNumber:taxCaseId(p.returnRef,year),
     status:"submitted",revision:1,submissionCount:1,simulated:true,
     simulationOrigin:"ura_engine",simulationBatchId:runRef.id,
-    data,calculation,policySnapshot:loaded[p.type].policy,
+    data,calculation,policySnapshot:loaded[p.type].policy,filingDue:dates.filingDue,paymentDue:dates.paymentDue,submittedOn:config.currentDate,
     createdBy:a.uid,submittedBy:a.uid,createdAt:FieldValue.serverTimestamp(),
     submittedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()
-   });
+   };
+   tx.create(p.returnRef,entry);
+   storeSubmission(tx,p.returnRef,entry,1,a.uid);
   }
   // Submission locks both versioned fictional tax policies, just like player filings.
   for(const type of types){
-   const {ref,snap,policy}=loaded[type];
+   const {ref,snap,policy,calendar,calendarRef}=loaded[type];
+   if(!calendar.locked)tx.set(calendarRef,{...calendar,locked:true},{merge:true});
    if(!snap.exists)tx.create(ref,{...policy,lockedAt:FieldValue.serverTimestamp(),
     lockedByReturnId:prepared.find(p=>p.type===type).returnRef.id,
     updatedAt:FieldValue.serverTimestamp(),updatedBy:"simulation_engine"});
@@ -233,7 +241,7 @@ export const runSimulationScenario=onCall(opts,async req=>{
   try{
    const acct=deriveAccount(x);
    if(acct.ownerUid)return false;
-   if(scenario==="collection_cycle")return acct.outstandingCents>0;
+   if(scenario==="collection_cycle")return acct.outstandingCents>0&&!(acct.collectionHold?.until>=config.currentDate);
    if(scenario==="refund_review")return acct.refundAvailableCents>0;
    return true;
   }catch{return false;}
@@ -272,23 +280,23 @@ export const runSimulationScenario=onCall(opts,async req=>{
    if(!acct.simulated||acct.ownerUid)continue;
    const taxpayer=item.taxpayerSnap.data();
    if(item.taxpayerSnap.id!==acct.taxpayerId||taxpayer?.simulated!==true||!canActivateTaxpayer(taxpayer))continue;
-   if(scenario==="collection_cycle"&&acct.outstandingCents<=0)continue;
+   if(scenario==="collection_cycle"&&(acct.outstandingCents<=0||acct.collectionHold?.until>=live.currentDate))continue;
    if(scenario==="refund_review"&&acct.refundAvailableCents<=0)continue;
-   picked.push({ref:item.targetRef,kind:item.kind,acct});
+   picked.push({ref:item.targetRef,kind:item.kind,acct,accountId:item.accountSnap.id});
   }
   if(!picked.length)error("failed-precondition","No eligible NPC accounts are available for this scenario.");
-  for(const {ref,kind,acct} of picked){
+  for(const {ref,kind,acct,accountId} of picked){
    if(kind==="refund"){
     const amount=Math.max(1,Math.floor(acct.refundAvailableCents*0.6));
-    tx.create(ref,{taxAccountId:acct.taxpayerId+"_"+acct.taxYear+"_"+acct.returnType,
+    tx.create(ref,{taxAccountId:accountId,
      taxpayerId:acct.taxpayerId,ownerUid:null,taxpayerName:acct.taxpayerName,
-     taxYear:acct.taxYear,returnType:acct.returnType,amountCents:amount,
+     taxYear:acct.taxYear,returnType:acct.returnType,period:acct.period??null,amountCents:amount,
      reason:"Simulated taxpayer requested a credit refund during workload generation.",
      status:"requested",requestedBy:"simulation_engine",requestedByName:"URA Simulation",
      simulated:true,simulationRunId:runRef.id,createdAt:FieldValue.serverTimestamp(),
      requestedAt:FieldValue.serverTimestamp()});
    }else{
-    const caseNumber=scenarioCaseNumber(kind,acct.taxYear,acct.taxpayerId);
+    const caseNumber=scenarioCaseNumber(kind,acct.taxYear,acct.taxpayerId)+(acct.period?"-"+acct.returnType.toUpperCase()+"-"+acct.period:"");
     const description=kind==="audit"?
       "Synthetic examination opened following automated review of a fictional taxpayer return.":
      kind==="collection"?
@@ -297,9 +305,9 @@ export const runSimulationScenario=onCall(opts,async req=>{
     tx.create(ref,{caseNumber,kind,status:scenarioInitial(kind),title:({
      audit:"Simulated return accuracy review",collection:"Outstanding assessed balance review",
      appeal:"Administrative tax assessment appeal"})[kind],
-     summary:description,taxAccountId:acct.taxpayerId+"_"+acct.taxYear+"_"+acct.returnType,
+     summary:description,taxAccountId:accountId,
      taxpayerId:acct.taxpayerId,taxpayerName:acct.taxpayerName,ownerUid:null,
-     taxYear:acct.taxYear,returnType:acct.returnType,priority:"standard",
+     taxYear:acct.taxYear,returnType:acct.returnType,period:acct.period??null,priority:"standard",
      dueDate:null,assignedTo:null,assignedToName:"",proposalStatus:null,
      simulated:true,simulationRunId:runRef.id,
      createdBy:"simulation_engine",createdByName:"URA Simulation",

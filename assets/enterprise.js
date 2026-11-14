@@ -1,6 +1,7 @@
 // Generation 6 — Institutional Intelligence, Registry Search and Document Studio.
+import {selectOperationsTaxpayer} from "./operations.js";
 import {call} from "./auth.js";
-import {isFiledReturn,openReturnDetails} from "./tax.js";
+import {isFiledReturn,openReturnDetails,printFullFiling} from "./tax.js";
 import {openPortalActivation,openPortalReset,portalStatus} from "./portal.js";
 import {escapeHTML as E,centsText as cash,csvText,createCSV,printDocument} from "./documents.js";
 
@@ -127,7 +128,7 @@ function dossierPage(s,h){
  '<button class="button" id="e-document-center">Document Studio</button>')+
  '<section class="e-hero compact"><div><div class="e-overline">INSTITUTIONAL TAXPAYER FILE</div><h2>'+E(x.fullName)+'</h2><p>'+E(x.taxpayerNumber)+' · '+E(x.region)+' · '+E(x.type)+'</p></div>'+pill(x.simulated?"Simulated NPC":"Taxpayer record","gold")+'</section>'+
  '<div class="e-metrics">'+
- ledger("Assessed income tax",cash(t.assessedCents),"Combined displayed tax accounts")+
+ ledger("Assessed tax",cash(t.assessedCents),"Combined displayed tax accounts")+
  ledger("Outstanding liability",cash(t.outstandingCents),"Current recorded amount")+
  ledger("Payments received",cash(t.directPaymentsCents),"Simulated Treasury receipts")+
  ledger("Available taxpayer credit",cash(t.creditAvailableCents),"Credit across recorded accounts")+'</div>'+
@@ -146,7 +147,8 @@ function dossierPage(s,h){
  row("Credits reserved",cash(t.reservedRefundCents))+'</div></section></div>'+
  '<section class="card e-card">'+heading("Connected agency records","Up to 100 entries per category")+
  '<div class="e-dossier-list">'+activity+'</div></section>'+
- '<div class="e-action-strip"><button class="button" id="e-print-statement">Print taxpayer account statement</button>'+
+ '<div class="e-action-strip"><button class="button" id="e-print-statement">Print taxpayer account statement</button><button class="button secondary" id="e-calendar">Tax calendar</button>'+
+ (x.type==="business"?'<button class="button secondary" id="e-business-taxes">Business tax accounts</button>':"")+
  (s.me?.role==="commissioner"&&portalStatus(x)==="Ready to convert"?'<button class="button secondary" id="e-activate-portal">Create portal login</button>':"")+
  (s.me?.role==="commissioner"&&x.ownerLinked&&x.portalName&&x.status==="active"?'<button class="button secondary" id="e-reset-portal">Reset portal password</button>':"")+
  (canStaff(s)?'<button class="button secondary" id="e-registry-return">Return to registry</button>':"")+'</div>'+
@@ -208,6 +210,7 @@ function printTaxpayerStatement(){
 function printRecord(kind,rec){
  if(!rec||!dossier)throw Error("Select a document record first.");
  const t=dossier.taxpayer;
+ if(kind==="taxReturns"){printFullFiling({...rec,taxpayerName:t.fullName});return;}
  const source={taxReturns:"Filing Review Summary",taxAssessments:"Formal Assessment Notice",
   treasuryReceipts:"Simulated Payment Receipt",treasuryRefunds:"Refund Case Notice",
   treasuryPlans:"Installment Agreement",agencyCases:"Administrative Case Notice"}[kind]||"Administrative Record";
@@ -293,6 +296,9 @@ export function enterprisePageHTML(s,h){
 }
 function reloadPage(h){return h.reload();}
 export function enterprisePageBind(s,h){
+ for(const [id,route] of [["e-calendar","calendar"],["e-business-taxes","business-taxes"]]){
+  document.getElementById(id)?.addEventListener("click",()=>{if(!dossier)return;selectOperationsTaxpayer(dossier.taxpayer.id);location.hash=route;});
+ }
  if(!enterprisePages.includes(s.page))return;
  document.getElementById("e-year")?.addEventListener("change",ev=>{year=Number(ev.target.value);reloadPage(h);});
  document.getElementById("e-refresh")?.addEventListener("click",()=>reloadPage(h));

@@ -6,3 +6,15 @@
 @media(max-width:1180px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-two{grid-template-columns:1fr}.auth-cover{padding:50px 42px}}
 @media(max-width:860px){.auth-shell{grid-template-columns:1fr}.auth-cover{min-height:260px;padding:30px 26px}.auth-cover h1{font-size:33px;max-width:620px}.auth-cover .auth-copy{display:none}.auth-foot{display:none}.auth-side{padding:38px 22px}.sidebar{position:fixed;left:-280px;top:0;bottom:0;z-index:15;transition:left .2s;box-shadow:10px 0 40px #0a1d322b}.sidebar.open{left:0}.workspace{width:100%}.mobile-toggle{display:grid;background:transparent;border:0;color:var(--navy);padding:5px}.topbar{padding:0 18px;gap:12px}.top-actions{gap:7px}.content{padding:25px 17px}.page-head h1{font-size:24px}.sidebar-shade{position:fixed;inset:0;background:#0b1d31aa;z-index:14;display:block}.stat-strip{align-items:start;flex-direction:column}}
 @media(max-width:560px){.kpis,.module-grid,.detail-grid{grid-template-columns:1fr}.page-head{flex-direction:column}.page-head .button{width:100%}.top-actions .label{display:none}.card-pad{padding:17px}.auth-cover h1{font-size:29px}.auth-card h2{font-size:24px}.modal-body{padding:18px}.modal-top,.modal-bottom{padding:17px}.toolbar .input{max-width:100%}}
+.ops-panel { margin-block: 0 18px; }
+.ops-panel + .ops-panel { margin-top: 18px; }
+.ops-field { display: grid; gap: 6px; }
+.ops-toolbar, .ops-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.ops-toolbar { justify-content: space-between; }
+.ops-toolbar select { width: auto; margin-inline-start: 6px; }
+.ops-request { padding-block: 14px; border-bottom: 1px solid #e2e9f0; }
+.ops-request h3 { margin: 0 0 6px; }
+.ops-pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ops-request-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); gap: 10px; }
+.ops-pagination { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.ops-panel .table td { vertical-align: top; }

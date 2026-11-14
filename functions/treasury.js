@@ -2,6 +2,8 @@
 // taxpayer payments, refund workflow, installment plans, and reconciliation.
 import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
+import {simulationDate} from "./lib/agency-access.js";
+import {isoDate} from "./lib/filing-calendar.js";
 import {canAccessTaxpayerRecord} from "./lib/portal-access.js";
 import {
  CHART,ACCOUNT_TYPES,PAYMENT_METHODS,accountId,blankAccount,deriveAccount,
@@ -73,27 +75,27 @@ function saveAccount(tx,ref,old,next){
 function payableFields(ret){
  return {taxpayerId:ret.taxpayerId,taxpayerName:ret.taxpayerName,
   ownerUid:ret.ownerUid||null,simulated:ret.simulationOrigin==="ura_engine"||ret.simulated===true,
-  taxYear:ret.taxYear,returnType:ret.returnType};
+  taxYear:ret.taxYear,returnType:ret.returnType,...(ret.period ? {period:ret.period} : {}),...(ret.paymentDue?{paymentDue:ret.paymentDue}:{})};
 }
 // Used by the Generation 2 examiner transaction. All reads happen before writes.
 // Accepted filings are posted once, and later amendments post only the difference.
 export async function postReturnAssessmentInTx(tx,actor,ret,sourceReturnId){
- const key=accountId(ret.taxpayerId,ret.taxYear,ret.returnType);
+ const key=ret.period ? sourceReturnId : accountId(ret.taxpayerId,ret.taxYear,ret.returnType);
  const ref=db().collection("treasuryAccounts").doc(key);
  const snap=await tx.get(ref);
  const old=snap.exists?snap.data():blankAccount(payableFields(ret));
  if(old.taxpayerId!==ret.taxpayerId||old.taxYear!==ret.taxYear||old.returnType!==ret.returnType)
   fail("failed-precondition","Conflicting treasury account.");
  let change;
- try{change=assessmentChange(old,ret.calculation);}catch(e){fail("failed-precondition",e.message);}
- const next={...change.next,latestReturnId:sourceReturnId};
+ try{change=assessmentChange(old,{...ret.calculation,taxDueCents:ret.calculation.taxDueCents+(old.penaltyCents||0)});}catch(e){fail("failed-precondition",e.message);}
+ const next={...change.next,latestReturnId:sourceReturnId,...(ret.period?{period:ret.period}:{}),...(ret.paymentDue?{paymentDue:ret.paymentDue}:{})};
  saveAccount(tx,ref,snap.exists?old:null,next);
  postJournal(tx,{id:sourceReturnId,accountRef:ref,actor,kind:"assessment",
   description:"Tax assessment / reported prepayments — "+ret.caseNumber,
   lines:change.lines,relatedId:sourceReturnId});
  return {accountId:key,deltaTaxCents:change.deltaTaxCents};
 }
-function keyFromArgs(data){try{return accountId(String(data?.taxpayerId||""),Number(data?.taxYear),String(data?.returnType||""));}catch(e){fail("invalid-argument",e.message);}}
+function keyFromArgs(data){if(data?.accountId)return id(data.accountId);try{return accountId(String(data?.taxpayerId||""),Number(data?.taxYear),String(data?.returnType||""));}catch(e){fail("invalid-argument",e.message);}}
 async function getAccount(actor,key){
  const ref=db().collection("treasuryAccounts").doc(id(key)),snap=await ref.get();
  if(!snap.exists)fail("not-found","No assessed fictional taxpayer account exists for this year and tax type.");
@@ -120,7 +122,7 @@ export const getTreasuryData=onCall(opts,async req=>{
  const journals=isEmployee(actor)?
   (await db().collection("treasuryJournals").orderBy("postedAt","desc").limit(200).get())
     .docs.map(d=>sanitized({id:d.id,...d.data()})):[];
- return {accounts,receipts,refunds,plans,journals,limit:200,
+ return {accounts,receipts,refunds,plans,journals,date:await simulationDate(),limit:200,
   disclaimer:"All financial entries are fictional roleplay transactions. No real money changes hands."};
 });
 export const getTreasuryOverview=onCall(opts,async req=>{
@@ -147,15 +149,25 @@ export const recordTreasuryPayment=onCall(opts,async req=>{
  let amount;
  try{amount=moneyFromDollars(req.data?.amount,"Payment");}catch(e){fail("invalid-argument",e.message);}
  const description=note(req.data?.description||"Fictional taxpayer remittance",8,350);
- const receiptRef=db().collection("treasuryReceipts").doc();
+ const nonce=req.data?.requestId;
+ if(nonce!=null&&(typeof nonce!=="string"||!/^[a-f0-9-]{36}$/i.test(nonce)))fail("invalid-argument","Invalid payment request reference.");
+ const receipts=db().collection("treasuryReceipts");
+ const receiptRef=nonce?receipts.doc(actor.uid+"_"+nonce):receipts.doc();
  const acctRef=db().collection("treasuryAccounts").doc(accountKey);
- const actorOwn=isEmployee(actor);
  let result;
  await db().runTransaction(async tx=>{
   const accountSnap=await tx.get(acctRef);
   if(!accountSnap.exists)fail("not-found","Tax account not found.");
   const old=deriveAccount(accountSnap.data());
   ensureAccountOwner(actor,old);
+  if(nonce){
+   const previous=(await tx.get(receiptRef)).data();
+   if(previous){
+    if(previous.taxAccountId!==accountKey||previous.amountCents!==amount||previous.method!==method)
+     fail("already-exists","This payment reference was used for another transaction.");
+    result={ok:true,receiptId:receiptRef.id,newOutstandingCents:old.outstandingCents};return;
+   }
+  }
   if(amount>old.outstandingCents)fail("failed-precondition","Payment cannot exceed the remaining assessed balance.");
   if(old.outstandingCents<=0)fail("failed-precondition","There is no outstanding assessment to pay.");
   const planRef=old.activePlanId?db().collection("treasuryPlans").doc(old.activePlanId):null;
@@ -172,7 +184,7 @@ export const recordTreasuryPayment=onCall(opts,async req=>{
   }
   saveAccount(tx,acctRef,old,next);
   tx.create(receiptRef,{taxAccountId:accountKey,ownerUid:old.ownerUid||null,taxpayerId:old.taxpayerId,
-   taxpayerName:old.taxpayerName,taxYear:old.taxYear,returnType:old.returnType,
+   taxpayerName:old.taxpayerName,taxYear:old.taxYear,returnType:old.returnType,period:old.period??null,
    amountCents:amount,method,description,kind:"payment",status:"posted",
    recordedBy:actor.uid,recordedByName:actor.displayName,
    createdAt:FieldValue.serverTimestamp(),postedAt:FieldValue.serverTimestamp()});
@@ -195,7 +207,7 @@ export const requestTreasuryRefund=onCall(opts,async req=>{
   const acct=deriveAccount(snap.data());ensureAccountOwner(actor,acct);
   if(amount>acct.refundAvailableCents)fail("failed-precondition","Requested refund exceeds available credits.");
   tx.create(ref,{taxAccountId:key,taxpayerId:acct.taxpayerId,ownerUid:acct.ownerUid||null,
-   taxpayerName:acct.taxpayerName,taxYear:acct.taxYear,returnType:acct.returnType,
+   taxpayerName:acct.taxpayerName,taxYear:acct.taxYear,returnType:acct.returnType,period:acct.period??null,
    amountCents:amount,reason,status:"requested",
    requestedBy:actor.uid,requestedByName:actor.displayName,
    createdAt:FieldValue.serverTimestamp(),requestedAt:FieldValue.serverTimestamp()});
@@ -266,7 +278,10 @@ export const requestTreasuryPlan=onCall(opts,async req=>{
  const count=Number(req.data?.installmentCount);
  const reason=note(req.data?.reason,10,1000);
  const acctRef=db().collection("treasuryAccounts").doc(key),planRef=db().collection("treasuryPlans").doc();
- const start=new Date();start.setUTCMonth(start.getUTCMonth()+1);const firstDueDate=start.toISOString().slice(0,10);
+ const date=await simulationDate();
+ const [year,month,day]=date.split("-").map(Number);
+ const nextMonthLastDay=new Date(Date.UTC(year,month+1,0)).getUTCDate();
+ const firstDueDate=isoDate(year,month,Math.min(day,nextMonthLastDay));
  await db().runTransaction(async tx=>{
   const snap=await tx.get(acctRef);
   if(!snap.exists)fail("not-found","Tax account not found.");
@@ -342,7 +357,7 @@ export const reconcileTreasury=onCall(opts,async req=>{
 
 // Generation 4: attach a formally authorized audit/appeals adjustment to the same
 // balanced Treasury ledger. Invoked inside a Firestore transaction before any writes.
-export async function postCaseAdjustmentInTx(tx,actor,caseRecord,newTaxDueCents,reference){
+export async function postCaseAdjustmentInTx(tx,actor,caseRecord,newTaxDueCents,reference,kind="case_adjustment",penaltyCents){
  const acctRef=db().collection("treasuryAccounts").doc(caseRecord.taxAccountId);
  const snap=await tx.get(acctRef);
  if(!snap.exists)fail("not-found","Underlying tax account not found.");
@@ -351,9 +366,10 @@ export async function postCaseAdjustmentInTx(tx,actor,caseRecord,newTaxDueCents,
  let change;
  try{change=assessmentChange(previous,{taxDueCents:newTaxDueCents,paymentsCents:previous.declaredPaymentsCents});}
  catch(e){fail("failed-precondition",e.message);}
- saveAccount(tx,acctRef,previous,{...change.next,latestCaseAdjustmentId:reference});
- postJournal(tx,{id:reference,accountRef:acctRef,actor,kind:"case_adjustment",
-  description:"Approved administrative tax adjustment — "+caseRecord.caseNumber,
+ if(newTaxDueCents<(penaltyCents??previous.penaltyCents??0))fail("invalid-argument","The total assessment cannot be lower than recorded penalties.");
+ saveAccount(tx,acctRef,previous,{...change.next,latestCaseAdjustmentId:reference,...(penaltyCents==null?{}:{penaltyCents})});
+ postJournal(tx,{id:reference,accountRef:acctRef,actor,kind,
+  description:(kind==="penalty_waiver"?"Approved penalty waiver — ":kind==="penalty"?"Fictional collection penalty — ":"Approved administrative tax adjustment — ")+caseRecord.caseNumber,
   lines:change.lines,relatedId:reference});
  return {oldTaxCents:previous.assessedCents,newTaxCents:change.next.assessedCents,
   taxDeltaCents:change.deltaTaxCents,accountId:acctRef.id};
@@ -383,4 +399,15 @@ export const cancelTreasuryRefund=onCall(opts,async req=>{
    reason,refundId));
  });
  return {ok:true};
+});
+
+export const getTreasuryRecord=onCall(opts,async req=>{
+ const actor=await currentActor(req);
+ const kinds={account:"treasuryAccounts",refund:"treasuryRefunds",plan:"treasuryPlans",receipt:"treasuryReceipts"};
+ const kind=String(req.data?.kind||"");
+ if(!Object.hasOwn(kinds,kind))fail("invalid-argument","Unknown Treasury record type.");
+ const snap=await db().collection(kinds[kind]).doc(id(req.data?.id)).get();
+ if(!snap.exists)fail("not-found","Treasury record not found.");
+ ensureAccountOwner(actor,snap.data());
+ return {record:sanitized({...snap.data(),id:snap.id})};
 });
