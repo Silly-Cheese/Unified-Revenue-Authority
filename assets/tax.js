@@ -8,6 +8,7 @@ const money=(n)=>"$"+(Number(n||0)/100).toLocaleString("en-US",{minimumFractionD
 const num=(n)=>Number(n||0).toLocaleString("en-US",{maximumFractionDigits:0});
 const date=(s)=>s?new Date(s).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"—";
 const labels={draft:"Draft",submitted:"Awaiting examination",information_requested:"Information requested",rejected:"Correction required",accepted:"Accepted & assessed"};
+const filingStatuses={single:"Single",married:"Married / Joint",head:"Head of Household"};
 const moneyFields={
  individual:{
   income:[["wages","Wages & salaries"],["selfEmployment","Self-employment income"],["investmentIncome","Investment & interest income"],["otherIncome","Other income"]],
@@ -23,6 +24,8 @@ let loading=false,loadError="";
 const e=(s)=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const roleStaff=(s)=>s.me?.role!=="citizen";
 const commissioner=(s)=>s.me?.role==="commissioner";
+const canDetermine=(s)=>["commissioner","supervisor","staff"].includes(s.me?.role);
+export const isFiledReturn=r=>["submitted","information_requested","rejected","accepted"].includes(r.status);
 const empty=(title,desc)=>'<div class="tax-empty"><div class="tax-empty-mark">URA</div><h3>'+e(title)+'</h3><p>'+e(desc)+'</p></div>';
 const status=(s)=>'<span class="tax-status '+e(s)+'">'+e(labels[s]||s)+'</span>';
 const metric=(name,value,foot)=>'<div class="tax-metric"><small>'+e(name)+'</small><strong>'+e(value)+'</strong><span>'+e(foot||"")+'</span></div>';
@@ -47,7 +50,8 @@ export async function taxLoad(state){
  try{
   const jobs=[];
   if(state.page==="filings"||state.page==="processing"){
-   jobs.push(call("listTaxReturns").then(r=>{returns=r.data.items||[];}));
+   const viewer=state.user?.uid;
+   jobs.push(call("listTaxReturns").then(r=>{if(state.user?.uid===viewer)returns=r.data.items||[];}));
   }
   if(state.page==="filings"||state.page==="taxpolicy"){
    jobs.push(call("getTaxCatalog").then(r=>{catalog=r.data;}));
@@ -69,6 +73,12 @@ export function taxPageHTML(state,h){
  if(state.page==="assessments")return assessmentsHTML(state,h);
  if(state.page==="taxpolicy"&&commissioner(state))return policiesHTML(state,h);
  return h.pageHeader("Restricted module","Your role does not allow access to this section.");
+}
+export function resetTaxWorkspace(){
+ returns=[];
+ editing=null;
+ preview=null;
+ document.querySelectorAll(".tax-filing-modal").forEach(dialog=>dialog.closest(".modal-backdrop")?.remove());
 }
 function filingsHTML(state,h){
  const own=roleStaff(state)?"Agency filing desk":"Your tax filings";
@@ -197,26 +207,62 @@ function policiesHTML(state,h){
  '</div><div class="tax-policy-foot"><span>Version '+e(p.version)+(row.customized?" · Custom":" · Agency default")+'</span><button class="button secondary" data-policy-edit="'+e(row.id)+'" '+(row.locked?"disabled":"")+'>'+(row.locked?"Locked":"Edit schedule")+'</button></div></div>';
  }).join("")+'</div></div>';
 }
-function viewReturn(r,state,h,examine=false){
+function filingValue(value){
+ return value===undefined||value===null||value===""?"Not provided":value;
+}
+function filingAmount(value){
+ const amount=filingValue(value);
+ return amount==="Not provided"?amount:money(Math.round(Number(amount)*100));
+}
+function filingRows(rows){
+ return '<dl class="tax-filing-rows">'+rows.map(([label,value])=>
+  '<div><dt>'+e(label)+'</dt><dd>'+e(filingValue(value))+'</dd></div>').join("")+'</dl>';
+}
+function filedEntries(r){
+ const data=r.data;
+ if(!data)return '<p class="tax-info">The saved form entries are unavailable for this return.</p>';
+ const business=r.returnType==="business";
+ const fields=moneyFields[r.returnType];
+ const section=(title,rows)=>'<section class="tax-filing-section"><h3>'+e(title)+'</h3>'+filingRows(rows)+'</section>';
+ const financialRows=group=>group.map(([key,label])=>[label,filingAmount(data[key])]);
+ return '<div class="tax-filing-sections">'+
+ section("Filing information",business?[["Business activity or industry",data.businessActivity]]:
+  [["Filing status",filingStatuses[data.filingStatus]||data.filingStatus],["Eligible dependents",data.dependents]])+
+ section("Income & revenue",financialRows(fields?.income||[]))+
+ section("Deductions, credits & payments",financialRows(fields?.deductions||[]))+
+ section("Supporting explanation & declaration",[
+  ["Supporting explanation",data.explanation],
+  ["Taxpayer declaration",typeof data.attested==="boolean"?(data.attested?"Acknowledged":"Not acknowledged"):null]
+ ])+'</div>';
+}
+export function openReturnDetails(r,state,h,{examine=false,readOnly=false,onBack}={}){
+ const calculation=r.calculation;
  let info='<div class="modal-body"><div class="tax-detail-grid">'+
- [["Taxpayer",r.taxpayerName],["Filing reference",r.caseNumber],["Tax year",r.taxYear],["Return type",labelType(r.returnType)],
- ["Processing status",labels[r.status]||r.status],["Submitted",date(r.submittedAt)]].map(([a,b])=>'<div><small>'+e(a)+'</small><strong>'+e(b)+'</strong></div>').join("")+'</div>'+
- '<div class="tax-results" style="margin-top:20px">'+[
- ["Gross income",r.calculation?.grossIncomeCents],
- ["Taxable income",r.calculation?.taxableIncomeCents],
- ["Tax liability",r.calculation?.taxDueCents],
- ["Payments and withholding",r.calculation?.paymentsCents],
- ["Refund claimed",r.calculation?.refundCents],
- ["Balance due",r.calculation?.balanceCents]].map(([a,b])=>'<div class="tax-results-row"><span>'+e(a)+'</span><strong>'+money(b)+'</strong></div>').join("")+'</div>'+
+ [["Taxpayer",r.taxpayerName],["Filing reference",r.caseNumber||r.id],["Tax year",r.taxYear],["Return type",labelType(r.returnType)],
+ ["Processing status",labels[r.status]||r.status],["Submitted",date(r.submittedAt)],
+ ["Policy version",r.policySnapshot?.version??r.policyVersion??calculation?.policyVersion],
+ ["Reviewed",date(r.reviewedAt)]].map(([a,b])=>'<div><small>'+e(a)+'</small><strong>'+e(filingValue(b))+'</strong></div>').join("")+'</div>'+
+ '<h3 class="tax-filing-heading">Filed form entries</h3>'+filedEntries(r)+
+ '<h3 class="tax-filing-heading">Calculated amounts</h3>'+
+ (calculation?filingRows([
+ ["Gross income",calculation.grossIncomeCents],["Allowable deductions",calculation.deductionsCents],
+ ["Taxable income",calculation.taxableIncomeCents],["Tax before credits",calculation.baseTaxCents],
+ ["Credits requested",calculation.requestedCreditsCents],["Credits applied",calculation.appliedCreditsCents],
+ ["Tax liability",calculation.taxDueCents],["Payments and withholding",calculation.paymentsCents],
+ ["Refund claimed",calculation.refundCents],["Balance due",calculation.balanceCents]
+ ].map(([label,value])=>[label,value==null?null:money(value)])):'<p class="tax-info">A saved calculation is unavailable.</p>')+
  (r.calculation?.reviewFlags?.length?'<div class="tax-review-alert"><strong>Automated examination indicators</strong>'+r.calculation.reviewFlags.map(t=>'<p>• '+e(t)+'</p>').join("")+'</div>':"")+
  (r.decisionReason?'<div class="tax-info" style="margin-top:18px"><strong>Decision or correspondence:</strong> '+e(r.decisionReason)+'</div>':"")+
  '<div class="tax-sub" style="margin-top:18px">All amounts are fictional. This filing is not a real tax or government document.</div></div><div class="modal-bottom">';
- const editable=["draft","information_requested","rejected"].includes(r.status);
+ const editable=!readOnly&&["draft","information_requested","rejected"].includes(r.status);
  if(editable)info+='<button class="button" id="tax-edit-return">Edit return</button>';
- else if(r.status==="accepted"&&!r.amendedFrom)info+='<button class="button secondary" id="tax-amend-return">Start amendment</button>';
- if(examine&&r.status==="submitted"&&roleStaff(state))info+='<button class="button" id="tax-decide-return">Issue determination</button>';
+ else if(!readOnly&&r.status==="accepted"&&!r.amendedFrom)info+='<button class="button secondary" id="tax-amend-return">Start amendment</button>';
+ if(examine&&r.status==="submitted"&&canDetermine(state))info+='<button class="button" id="tax-decide-return">Issue determination</button>';
+ if(onBack)info+='<button class="button secondary" id="tax-filing-back">Back to case file</button>';
  info+='<button class="button secondary" data-close>Close</button></div>';
- h.modal("Return examination · "+r.caseNumber,info,el=>{
+ h.modal((examine?"Return examination":"Full tax filing")+" · "+(r.caseNumber||r.id),info,el=>{
+  el.querySelector(".modal").classList.add("tax-filing-modal");
+  el.querySelector("#tax-filing-back")?.addEventListener("click",()=>{el.remove();onBack();});
   el.querySelector("#tax-edit-return")?.addEventListener("click",()=>{
    editing={id:r.id,returnType:r.returnType,taxYear:r.taxYear,taxpayerId:r.taxpayerId,data:{...r.data}};
    step=0;preview=null;el.remove();location.hash="filings";h.renderShell();
@@ -322,8 +368,8 @@ export function taxPageBind(state,h){
  document.getElementById("tax-queue-search")?.addEventListener("change",ev=>{searchTerm=ev.target.value;h.renderShell();});
  document.getElementById("tax-assess-search")?.addEventListener("change",ev=>{searchTerm=ev.target.value;h.renderShell();});
  document.getElementById("tax-policy-year")?.addEventListener("change",ev=>{yearFilter=ev.target.value;h.renderShell();});
- document.querySelectorAll("[data-tax-open]").forEach(el=>el.addEventListener("click",()=>{const r=returns.find(x=>x.id===el.dataset.taxOpen);if(r)viewReturn(r,state,h);}));
- document.querySelectorAll("[data-tax-review]").forEach(el=>el.addEventListener("click",()=>{const r=returns.find(x=>x.id===el.dataset.taxReview);if(r)viewReturn(r,state,h,true);}));
+ document.querySelectorAll("[data-tax-open]").forEach(el=>el.addEventListener("click",()=>{const r=returns.find(x=>x.id===el.dataset.taxOpen);if(r)openReturnDetails(r,state,h);}));
+ document.querySelectorAll("[data-tax-review]").forEach(el=>el.addEventListener("click",()=>{const r=returns.find(x=>x.id===el.dataset.taxReview);if(r)openReturnDetails(r,state,h,{examine:true,readOnly:true});}));
  document.querySelectorAll("[data-policy-edit]").forEach(el=>el.addEventListener("click",()=>{const item=catalog?.policies?.find(x=>x.id===el.dataset.policyEdit);if(item&&!item.locked)editPolicyDialog(item,h);}));
  if(!editing||state.page!=="filings")return;
  document.querySelectorAll("[data-money]").forEach(el=>el.addEventListener("input",()=>{editing.data[el.dataset.money]=el.value;preview=null;}));

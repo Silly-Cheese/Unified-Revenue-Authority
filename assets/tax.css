@@ -35,6 +35,18 @@
 .tax-detail-grid>div{border:1px solid #e5eaf0;padding:15px;border-radius:10px;background:#fcfdfe;min-width:0}
 .tax-detail-grid small{font-size:10px;color:#8997a8;display:block;margin-bottom:8px}
 .tax-detail-grid strong{font-size:12px;overflow-wrap:anywhere}
+.modal.tax-filing-modal{width:min(740px,100%)}
+.tax-filing-modal .modal-bottom{position:sticky;bottom:0;background:#fff;flex-wrap:wrap}
+.tax-filing-heading{font-size:16px;margin:22px 0 12px}
+.tax-filing-sections{display:grid;gap:12px}
+.tax-filing-section h3{font-size:13px;color:#243e58;margin-bottom:7px}
+.tax-filing-rows{margin:0;border:1px solid #e3e8ee;border-radius:10px;overflow:hidden}
+.tax-filing-rows>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:10px 14px;font-size:13px}
+.tax-filing-rows>div+div{border-top:1px solid #e3e8ee}
+.tax-filing-rows>div:nth-child(even){background:#f8fafc}
+.tax-filing-rows dt{color:#52687e}
+.tax-filing-rows dd{margin:0;color:#243e58;font-weight:700;overflow-wrap:anywhere;white-space:pre-wrap}
+@media(max-width:480px){.tax-filing-rows>div{grid-template-columns:1fr;gap:4px}}
 .tax-info{padding:16px 17px;background:#f6f8fa;border:1px solid #e3e9ef;border-radius:10px;margin-top:22px;color:#62758b;font-size:12px;line-height:1.9}
 .tax-info strong{color:#364d67}
 .tax-wizard-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:19px 35px;border-top:1px solid var(--line);background:#fafbfd}
