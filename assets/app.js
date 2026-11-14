@@ -5,6 +5,7 @@ import {casePages,casePageHTML,casePageBind,caseLoad} from "./cases.js";
 import {simulationPages,simulationPageHTML,simulationPageBind,simulationLoad} from "./simulation.js";
 import {openPasswordChange,openPortalActivation,openPortalReset,portalStatus} from "./portal.js";
 import {operationsPages,operationsLoad,operationsHTML,operationsBind,resetOperations,selectOperationsTaxpayer} from "./operations.js";
+import {serviceMessage, unavailableService} from "./service-status.js";
 import {centsText} from "./documents.js";
 import {enterprisePages,enterprisePageHTML,enterprisePageBind,enterpriseLoad} from "./enterprise.js";
 import {authListener,profile,register,login,logout,call} from "./auth.js";
@@ -71,16 +72,33 @@ function visiblePages(){
  if(state.me?.role==="staff"){const i=pages.findIndex(p=>p[0]==="investigations");if(i!==-1)pages.splice(i,1);}
  return pages;
 }
+const navSections=[
+ ["Overview",["dashboard","executive"]],
+ ["Taxpayer services",["registry","taxpayers","dossier","filings","processing","assessments","business-taxes","calendar","wage-statements","notices","documents"]],
+ ["Treasury",["treasury","payments","refunds","plans","ledger"]],
+ ["Casework",["examinations","appeals","collections","investigations"]],
+ ["Administration",["staff","taxpolicy","simulation","modules","activity","account"]]
+];
 function sidebar(){
- const pages=visiblePages();
- return '<aside class="sidebar'+(state.menu?" open":"")+'"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED REVENUE<br>AUTHORITY</span></div><div class="sidebar-section">Agency workspace</div><nav class="nav">'+pages.map(p=>'<a href="#'+p[0]+'" class="'+(state.page===p[0]?"active":"")+'">'+icon(p[1])+esc(p[2])+'</a>').join("")+'</nav><div class="sidebar-bottom"><div class="identity"><div class="avatar">'+esc(initials(state.me?.displayName))+'</div><div><div class="who">'+esc(state.me?.displayName)+'</div><div class="role">'+esc(roleLabel(state.me?.role))+'</div></div></div><button class="button ghost" id="logout" style="margin-top:15px;color:#cad8e5;width:100%">'+icon("logout")+' Sign out</button></div></aside>';
+ const pages=new Map(visiblePages().map(page=>[page[0],page]));
+ const navigation=navSections.map(([section,keys])=>{
+  const links=keys.filter(key=>pages.has(key)).map(key=>{
+   const [id,glyph,label]=pages.get(key);
+   const current=state.page===id;
+   return '<a href="#'+id+'"'+(current?' class="active" aria-current="page"':'')+'>'+icon(glyph)+esc(label)+'</a>';
+  }).join("");
+  return links?'<div class="nav-group"><div class="sidebar-section">'+section+'</div>'+links+'</div>':"";
+ }).join("");
+ return '<aside class="sidebar'+(state.menu?" open":"")+'"><div class="brand"><span class="seal">'+icon("landmark")+'</span><span>UNIFIED REVENUE<br>AUTHORITY</span></div><nav class="nav" aria-label="Agency workspace">'+navigation+'</nav><div class="sidebar-bottom"><div class="identity"><div class="avatar">'+esc(initials(state.me?.displayName))+'</div><div><div class="who">'+esc(state.me?.displayName)+'</div><div class="role">'+esc(roleLabel(state.me?.role))+'</div></div></div><button class="button ghost" id="logout" style="margin-top:15px;color:#cad8e5;width:100%">'+icon("logout")+' Sign out</button></div></aside>';
 }
 function pageHeader(title,sub,action=""){return '<div class="page-head"><div><div class="eyebrow" style="color:#aa8959">UNIFIED REVENUE AUTHORITY / OPERATIONS</div><h1>'+esc(title)+'</h1><p>'+esc(sub)+'</p></div>'+action+'</div>';}
 function kpi(label,value,foot,ico){return '<div class="kpi"><div class="kpi-label">'+esc(label)+icon(ico)+'</div><div class="kpi-value">'+esc(value)+'</div><div class="kpi-foot">'+esc(foot)+'</div></div>';}
 function renderShell(){
  if(!state.me){renderAuth();return;}
  const title={dashboard:"Command center",taxpayers:"Taxpayer registry",staff:"Personnel management",activity:"Activity & audit",account:"My account",modules:"Agency divisions",filings:"Tax filings",processing:"Return processing",assessments:"Tax assessments",taxpolicy:"Tax policies",treasury:"Treasury command",payments:"Payments & receipts",refunds:"Refund operations",plans:"Payment arrangements",ledger:"General ledger",examinations:"Examinations & audits",appeals:"Administrative appeals",collections:"Revenue collections",investigations:"Special investigations",simulation:"Simulation command",executive:"Executive intelligence",registry:"Enterprise registry",dossier:"Taxpayer dossier",documents:"Document Studio"}[state.page]||visiblePages().find(page=>page[0]===state.page)?.[2]||"Operations";
+ const navScroll=app.querySelector(".sidebar")?.scrollTop||0;
  app.innerHTML='<div class="shell">'+sidebar()+(state.menu?'<div class="sidebar-shade" id="shade"></div>':"")+'<div class="workspace"><header class="topbar"><div class="crumb"><button class="mobile-toggle" id="mobile-menu" aria-label="Open navigation">'+icon("menu")+'</button><span>URA</span>'+icon("chevron")+' <strong>'+esc(title)+'</strong></div><div class="top-actions"><button class="e-global-find" id="global-search" type="button" aria-label="Find a module (Control K)">'+icon("search")+' <span class="label">Find a module</span><kbd>Ctrl K</kbd></button><span class="pill">Simulation environment</span><span class="label">'+esc(state.me.displayName)+'</span><span class="avatar" style="width:32px;height:32px">'+esc(initials(state.me.displayName))+'</span></div></header><main class="content">'+pageHTML()+'<div class="mini-footer">UNIFIED REVENUE AUTHORITY · FICTIONAL GOVERNMENT ROLEPLAY</div></main></div></div>';
+ app.querySelector(".sidebar").scrollTop=navScroll;
  document.getElementById("logout").addEventListener("click",async()=>{await logout();state.user=null;state.me=null;state.portalOverview=null;state.actionCenter=null;state.overview=null;state.treasuryOverview=null;state.workload=null;state.events=[];state.page="dashboard";renderAuth();});
  document.getElementById("global-search")?.addEventListener("click",showCommandPalette);
  document.getElementById("mobile-menu")?.addEventListener("click",()=>{state.menu=!state.menu;renderShell();});
@@ -257,7 +275,7 @@ async function loadPage(){
     state.overview=null;state.treasuryOverview=null;state.workload=null;
     jobs.push(call("getOverview").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.overview=r.data;}),
      call("getTreasuryOverview").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.treasuryOverview=r.data;}),
-     call("getAgencyWorkload").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.workload=r.data;}));
+     call("getAgencyWorkload").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.workload=r.data;}).catch(error=>{if(!unavailableService(error))throw error;}));
    }
    if(state.page==="dashboard"||state.page==="activity")
     jobs.push(getDocs(query(collection(db,"auditLogs"),orderBy("createdAt","desc"),limit(25))).then(s=>{if(load===loadNumber&&state.user?.uid===uid)state.events=s.docs.map(d=>({id:d.id,...d.data()}));}));
@@ -269,7 +287,7 @@ async function loadPage(){
   if(state.page==="dashboard"&&!isStaff()){
    const uid=state.user.uid;
    state.portalOverview=null;state.actionCenter=null;
-   jobs.push(call("getTaxpayerActionCenter").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.actionCenter=r.data;}));
+   jobs.push(call("getTaxpayerActionCenter").then(r=>{if(load===loadNumber&&state.user?.uid===uid)state.actionCenter=r.data;}).catch(error=>{if(!unavailableService(error))throw error;}));
    jobs.push(call("getTaxpayerPortalOverview").then(r=>{
     if(state.user?.uid===uid)state.portalOverview=r.data;
    }));
@@ -282,7 +300,7 @@ async function loadPage(){
   if(operationsPages.includes(state.page))jobs.push(operationsLoad(state));
   const results=await Promise.allSettled(jobs);
   const failed=results.find(result=>result.status==="rejected");
-  if(failed&&load===loadNumber&&state.user?.uid===uid)toast("Could not load all agency records: "+authError(failed.reason),true);
+  if(failed&&load===loadNumber&&state.user?.uid===uid)toast(serviceMessage(failed.reason),true);
  }finally{if(load===loadNumber&&state.user?.uid===uid){state.loading=false;renderShell();}}
 }
 async function enter(){

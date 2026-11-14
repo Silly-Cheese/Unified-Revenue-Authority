@@ -2,7 +2,8 @@
 import {caseTools,bindCaseTools} from "./case-services.js";
 import {periodLabel} from "./operations.js";
 import {call} from "./auth.js";
-import {openReturnDetails} from "./tax.js";
+import {unavailableService, serviceMessage} from "./service-status.js";
+import {isFiledReturn,openReturnDetails} from "./tax.js";
 export const casePages=["examinations","appeals","collections","investigations"];
 let cases=[],officers=[],accounts=[],selectedStatus="all",search="",scope="all",currentDate="",queueRoute="";
 const E=(v)=>String(v??"").replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
@@ -150,16 +151,26 @@ async function viewFile(s,h,id){
    results.textContent="Loading filed returns…";
    try{
     let cursor, filings=[];
-    do{
-     const {data}=await call("searchTaxFilings",{taxpayerId:c.taxpayerId,year:c.taxYear,type:c.returnType,period:c.period,filedOnly:true,cursor});
+    let limited=false;
+    try{
+     do{
+      const {data}=await call("searchTaxFilings",{taxpayerId:c.taxpayerId,year:c.taxYear,type:c.returnType,period:c.period,filedOnly:true,cursor});
+      if(!el.isConnected||s.user?.uid!==viewer)return;
+      filings.push(...data.items);cursor=data.next;
+     }while(cursor);
+    }catch(error){
+     if(!unavailableService(error))throw error;
+     const {data}=await call("getTaxpayerDossier",{taxpayerId:c.taxpayerId});
      if(!el.isConnected||s.user?.uid!==viewer)return;
-     filings.push(...data.items);cursor=data.next;
-    }while(cursor);
+     filings=(data.records?.taxReturns||[]).filter(r=>r.taxYear===c.taxYear&&r.returnType===c.returnType&&
+      (r.period||null)===(c.period||null)&&isFiledReturn(r)).map(r=>({...r,taxpayerName:c.taxpayerName}));
+     limited=(data.limits?.partial||[]).includes("taxReturns");
+    }
     filings.sort((a,b)=>String(b.submittedAt||"").localeCompare(String(a.submittedAt||"")));
-    results.innerHTML=filings.length?filings.map(r=>
+    results.innerHTML=(filings.length?filings.map(r=>
      '<button type="button" class="c-notice" data-c-filing="'+E(r.id)+'"><strong>'+E(r.caseNumber||r.id)+
      '</strong><small>'+E(label(r.status))+' · '+E(date(r.submittedAt))+' · View full filing</small></button>'
-    ).join(""):'<p class="c-statement">No filed returns found for this taxpayer and period.</p>';
+    ).join(""):'<p class="c-statement">No filed returns found for this taxpayer and period.</p>')+(limited?'<p class="c-smallprint">Showing only filings available in the taxpayer dossier.</p>':'');
     results.querySelectorAll("[data-c-filing]").forEach(entry=>entry.addEventListener("click",()=>{
      if(s.user?.uid!==viewer)return;
      const filing=filings.find(r=>r.id===entry.dataset.cFiling);
@@ -167,7 +178,7 @@ async function viewFile(s,h,id){
     }));
     button.remove();
    }catch(err){
-    results.textContent=err?.message||"Could not load the filed returns. Try again.";
+    results.textContent=serviceMessage(err);
     button.disabled=false;
    }
   });

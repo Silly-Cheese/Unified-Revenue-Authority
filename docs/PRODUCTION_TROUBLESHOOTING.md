@@ -58,3 +58,45 @@ If getExecutiveReport still returns 500, capture the *server-side error message 
 - Do not put service-account JSON credentials, bootstrap passwords or private keys in GitHub or a chat.
 - App Firestore Rules and role checks still deny direct client access to confidential records.
 - A passing Node unit test does not replace a live Firebase integration smoke test.
+
+## Operations expansion endpoints return HTTP 404
+
+If `getOverview` returns 204 with CORS headers but `getFilingCalendar`,
+`listInformationRequests`, and `listPortalNotices` return 404, the Pages
+frontend is newer than the Functions reachable at the configured project
+and region. Deploy from a checkout containing PR #12. The existing rules
+continue to protect agency and taxpayer records.
+
+From the repository root on the Windows device with Firebase access:
+
+```powershell
+git pull --ff-only origin main
+npm.cmd install --prefix functions
+npm.cmd test --prefix functions
+
+$uraBatches = @(
+  "getFilingCalendar,setFilingSchedule,openBusinessTaxAccount,saveBusinessTaxReturn,reviewBusinessTaxReturn,requestFilingExtension,decideFilingExtension,listFilingExtensions,issueWageStatement,listWageStatements",
+  "createInformationRequest,updateInformationRequest,listInformationRequests,getInformationRequest,saveExaminationWorkpaper,getExaminationWorkpapers,previewExaminationAdjustment,collectionAction,getCollectionDetails,getCaseAssessment",
+  "getAgencyWorkload,getTaxpayerActionCenter,getPortalNotice,listPortalNotices,findOperationsTaxpayer,searchTaxFilings,getTaxFilingHistory,getTaxFiling,getWageStatementTotals,findOriginalTaxReturn",
+  "getTreasuryRecord,recordTreasuryPayment,getTreasuryData,listAgencyCases,getAgencyCase,createAgencyCase,advanceAgencyCase,issueAgencyNotice,proposeAgencyAdjustment,determineAgencyAdjustment",
+  "saveTaxDraft,submitTaxReturn,listTaxReturns,reviewTaxReturn,beginTaxAmendment,listTaxAssessments,getTaxpayerDossier,generateSimulationPopulation,runSimulationScenario"
+)
+
+foreach ($uraBatch in $uraBatches) {
+  $uraTargets = (($uraBatch -split ",") | ForEach-Object { "functions:$_" }) -join ","
+  firebase.cmd deploy --only $uraTargets --project unified-revenue-authority
+  if ($LASTEXITCODE -ne 0) { throw "Firebase deployment failed for $uraBatch" }
+}
+```
+
+Afterward, verify the endpoints before testing while signed in:
+
+```powershell
+foreach ($uraEndpoint in @("getFilingCalendar", "listInformationRequests", "listPortalNotices")) {
+  curl.exe -i -X OPTIONS "https://us-central1-unified-revenue-authority.cloudfunctions.net/$uraEndpoint" -H "Origin: https://silly-cheese.github.io" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: authorization,content-type"
+}
+```
+
+Expect a 204 and `access-control-allow-origin: https://silly-cheese.github.io`
+for each. If a command fails, keep the first Firebase CLI error. It identifies
+which function or project setting still needs attention.

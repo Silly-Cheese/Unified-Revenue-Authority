@@ -1,4 +1,7 @@
 import {call} from "./auth.js";
+import {db} from "./firebase.js";
+import {collection, documentId, getDocs, limit, orderBy, query, startAt, endAt, where} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+import {serviceMessage} from "./service-status.js";
 import {escapeHTML as E, centsText as cash, printDocument} from "./documents.js";
 
 export const operationsPages = ["calendar", "business-taxes", "wage-statements", "notices"];
@@ -33,49 +36,87 @@ let context = null;
 let selection = "";
 let year = null;
 let owner = null;
+let operationLoad = 0;
 export function selectOperationsTaxpayer(id) { selection = id; }
 export function resetOperations() { context = null; selection = ""; owner = null; year = null; }
 export async function operationsLoad(s) {
- const uid = s.user?.uid;
- const page = s.page;
- const target = s.routeTarget || "";
+ const uid = s.user?.uid, page = s.page, target = s.routeTarget || "";
+ const load = ++operationLoad;
  if (owner !== uid) { selection = ""; year = null; owner = uid; }
- if (Number(target)>=2025&&Number(target)<=2035&&page==="calendar") year=Number(target);
- const data = {page, target, uid};
- context = null;
+ if (Number(target) >= 2025 && Number(target) <= 2035 && page === "calendar") year = Number(target);
+ if (staff(s) && page !== "notices" && !selection && s.me.taxpayerId) selection = s.me.taxpayerId;
+ const taxpayerId = staff(s) ? selection : s.me.taxpayerId;
+ const args = {taxpayerId: taxpayerId || undefined, year};
+ const data = {page, target, uid, errors: {}, taxpayerId};
+ const fetchPanel = async (key, endpoint, payload) => {
+  try { data[key] = await loadCall(endpoint, payload); }
+  catch (error) { data.errors[key] = serviceMessage(error); }
+ };
+ const jobs = [];
  if (page === "notices") {
-  const jobs = [loadCall("listInformationRequests", {openOnly: staff(s)}), loadCall("listPortalNotices")];
-  if (target.startsWith("letter_")) jobs.push(loadCall("getPortalNotice", {id: target.slice(7)}));
-  else if (target && !target.startsWith("collection_")) jobs.push(loadCall("getInformationRequest", {id: target}));
-  const [requests, letters, detail] = await Promise.all(jobs);
-  Object.assign(data, {requests, letters, detail});
+  jobs.push(fetchPanel("requests", "listInformationRequests", {openOnly: staff(s)}), fetchPanel("letters", "listPortalNotices"));
+  if (target.startsWith("letter_")) jobs.push(fetchPanel("detail", "getPortalNotice", {id: target.slice(7)}));
+  else if (target && !target.startsWith("collection_")) jobs.push(fetchPanel("detail", "getInformationRequest", {id: target}));
  } else {
-  if (staff(s) && !selection && s.me.taxpayerId) selection = s.me.taxpayerId;
-  const query = {taxpayerId: selection || undefined, year};
-  if (selection || !staff(s)) data.calendar = await loadCall("getFilingCalendar", query);
-  if (page === "calendar" && staff(s)) data.extensions = await loadCall("listFilingExtensions");
-  if (page === "wage-statements" && data.calendar) data.statements = await loadCall("listWageStatements", query);
+  if (taxpayerId || !staff(s)) {
+   jobs.push(fetchPanel("calendar", "getFilingCalendar", args));
+   if (page === "wage-statements") jobs.push(fetchPanel("statements", "listWageStatements", args));
+  }
+  if (page === "calendar" && staff(s)) jobs.push(fetchPanel("extensions", "listFilingExtensions"));
  }
- if (s.user?.uid === uid && s.page === page && s.routeTarget === target) {context=data;if(data.calendar?.year)year=data.calendar.year;}
+ await Promise.all(jobs);
+ if (load === operationLoad && s.user?.uid === uid && s.page === page && s.routeTarget === target) {
+  context = data;
+  if (data.calendar?.year) year = data.calendar.year;
+ }
+}
+async function registryLookup(input) {
+ const taxpayers = collection(db, "taxpayers");
+ const value = input.normalize("NFKC").trim();
+ const reference = /^(URA|NPC)-[a-z0-9]{20}$/i.test(value);
+ const docId = /^[A-Za-z0-9]{20}$/.test(value);
+ const titleCase = value.toLowerCase().replace(/(^|[\s'-])\p{L}/gu, letter => letter.toUpperCase());
+ const queries = reference ? [query(taxpayers, where("taxpayerNumber", "==", value.toUpperCase()), limit(10))] :
+  [...new Set([value, titleCase])].map(prefix => query(taxpayers, orderBy("fullName"), startAt(prefix), endAt(prefix + "\uf8ff"), limit(20)));
+ if (docId) queries.push(query(taxpayers, where(documentId(), "==", value), limit(1)),
+  ...["URA", "NPC"].map(prefix => query(taxpayers, where("taxpayerNumber", "==", prefix + "-" + value.toUpperCase()), limit(2))));
+ const docs = (await Promise.all(queries.map(item => getDocs(item)))).flatMap(snapshot => snapshot.docs);
+ return [...new Map(docs.map(doc => {
+  const data = doc.data();
+  return [doc.id, {id: doc.id, name: data.fullName, type: data.type, reference: data.taxpayerNumber || doc.id}];
+ })).values()].sort((a,b) => a.name.localeCompare(b.name)).slice(0,30);
 }
 function searchTaxpayer(h, s) {
  const uid = s.user?.uid;
- h.modal("Find taxpayer", `<div class="modal-body"><form id="ops-search"><label class="ops-field">Name prefix or taxpayer reference<input class="input" name="query" required maxlength="90"></label><button type="submit" class="button">Search</button></form><div data-results aria-live="polite"></div></div><div class="modal-bottom"><button class="button secondary" data-close>Close</button></div>`, el => {
+ h.modal("Find a taxpayer", `<div class="modal-body ops-lookup">
+  <form id="ops-search"><label for="ops-query">Name or taxpayer reference</label>
+   <div class="ops-search-bar"><input id="ops-query" class="input" name="query" type="search" required maxlength="90" placeholder="e.g. Sterling or URA-…" autocomplete="off">
+   <button type="submit" class="button">Search</button></div>
+  </form><div class="ops-search-results" data-results aria-live="polite"></div>
+ </div><div class="modal-bottom"><button class="button secondary" data-close>Close</button></div>`, el => {
+  el.querySelector(".modal").classList.add("ops-lookup-dialog");
+  const input = el.querySelector("#ops-query");
+  input.focus();
   el.querySelector("form").addEventListener("submit", async event => {
    event.preventDefault();
-   const query = String(new FormData(event.currentTarget).get("query") || "").trim();
+   const value = input.value.trim();
+   if (!value) return;
+   const button = event.submitter || el.querySelector('[type="submit"]');
    const list = el.querySelector("[data-results]");
-   list.textContent = "Searching…";
+   button.disabled = true;
+   list.textContent = "Searching the registry…";
    try {
-    const result = await loadCall("findOperationsTaxpayer", {query});
+    const items = await registryLookup(value);
     if (!el.isConnected || s.user?.uid !== uid) return;
-    list.innerHTML = result.items.map(row => `<button class="c-notice" type="button" data-subject="${E(row.id)}"><strong>${E(row.name)}</strong><small>${E(row.reference)} · ${E(row.type)}</small></button>`).join("") || "No taxpayers matched.";
+    list.innerHTML = items.map(row => `<button class="ops-result" type="button" data-subject="${E(row.id)}"><strong>${E(row.name)}</strong><small>${E(row.reference)} · ${E(row.type)}</small><span aria-hidden="true">›</span></button>`).join("") ||
+     '<p class="ops-search-empty">No matching taxpayers. Try the first part of a name or the full reference.</p>';
     list.querySelectorAll("[data-subject]").forEach(btn => btn.addEventListener("click", () => {
      selection = btn.dataset.subject;
      el.remove();
      h.reload();
     }));
-   } catch (error) { list.textContent = error.message; }
+   } catch (error) { if (el.isConnected) list.textContent = serviceMessage(error); }
+   finally { button.disabled = false; }
   });
  });
 }
@@ -94,7 +135,7 @@ export function operationForm(h, title, fields, button, run, after, extra = "") 
     el.remove();
     if (after) await after(result);
     else {h.toast("Record updated."); await h.reload();}
-   } catch (err) { if (el.isConnected) error.textContent = err.message || "Could not update this record."; }
+   } catch (err) { if (el.isConnected) error.textContent = serviceMessage(err); }
    finally { buttons.forEach(btn => btn.disabled = false); }
   });
  });
@@ -117,53 +158,111 @@ function filingRows(calendar, businessOnly) {
    row.status !== "unfiled" ? `<a class="link" href="#filings/${E(row.id)}">View filing</a>` : "";
   const payment = row.treasuryAccountId && row.outstandingCents > 0 ? `<a class="link" href="#payments/account_${E(row.treasuryAccountId)}">Pay ${E(cash(row.outstandingCents))}</a>` : "";
   return cell(taxLabel(row.type)) + cell(periodLabel(row.type, row.year, row.period)) + cell(effective) + cell(row.paymentDue) +
-   cell(periodStatus(row, calendar.date)) + `<td><div class="ops-actions">${open}${extension}${payment}</div></td>`;
+   `<td><span class="ops-badge ${periodStatus(row, calendar.date) === "Overdue" ? "ops-badge-late" : row.status === "accepted" ? "ops-badge-good" : ""}">${E(periodStatus(row, calendar.date))}</span></td>` + `<td><div class="ops-actions">${open}${extension}${payment}</div></td>`;
  });
+}
+const reloadButton = '<button class="button secondary" type="button" data-ops-reload>Retry</button>';
+function emptyState(title, detail, action = "", failed = false) {
+ return `<div class="ops-state${failed ? " ops-state-error" : ""}"${failed ? ' role="status"' : ""}>
+  <div><strong>${E(title)}</strong><p>${E(detail)}</p></div>${action}</div>`;
+}
+const unavailable = (title, error, link = "") => emptyState(title, error, `<div class="ops-actions">${link}${reloadButton}</div>`, true);
+function deadlineCards(calendar) {
+ const open = calendar.periods.filter(row => ["unfiled","draft","information_requested","rejected"].includes(row.status));
+ const due = row => row.extension?.status === "approved" ? row.extension.requestedUntil : row.filingDue;
+ const dates = open.map(due).sort();
+ const next = dates.find(date => date >= calendar.date);
+ return `<div class="ops-stats">
+  <div><span>Open filing periods</span><strong>${open.length}</strong></div>
+  <div><span>Overdue filings</span><strong>${dates.filter(date => date < calendar.date).length}</strong></div>
+  <div><span>Next filing deadline</span><strong>${E(next || "—")}</strong></div>
+ </div>`;
 }
 function calendarPage(s, data) {
  const calendar = data.calendar;
- return (calendar ? panel("Filing periods", table(["Tax", "Period", "Filing due", "Payment due", "Status", "Actions"], filingRows(calendar, false)),
-  commissioner(s) ? '<button type="button" class="button secondary" id="ops-edit-policy">Edit filing schedule</button>' : "") : "") +
-  (data.extensions ? panel("Pending extensions", table(["Taxpayer", "Tax", "Period", "Requested until", ""], data.extensions.items.map(row =>
-   cell(row.taxpayerName) + cell(taxLabel(row.type)) + cell(periodLabel(row.type,row.year,row.period)) + cell(row.requestedUntil) + `<td>${actionButton("data-review-extension", row.id, supervisor(s) ? "Review" : "View")}</td>`)),
-  data.extensions.next ? '<button class="button secondary" id="ops-more-extensions" type="button">More requests</button>' : "") : "");
+ const schedule = commissioner(s) ? '<button type="button" class="button secondary" id="ops-edit-policy">Edit filing schedule</button>' : "";
+ const filings = calendar ? deadlineCards(calendar) + panel("Filing periods",
+  table(["Tax", "Period", "Filing due", "Payment due", "Status", "Actions"], filingRows(calendar, false)), schedule) : "";
+ if (!staff(s)) return filings;
+ const extensions = data.extensions;
+ const rows = (extensions?.items || []).map(row =>
+  cell(row.taxpayerName) + cell(taxLabel(row.type)) + cell(periodLabel(row.type,row.year,row.period)) + cell(row.requestedUntil) +
+  `<td>${actionButton("data-review-extension", row.id, supervisor(s) ? "Review" : "View")}</td>`);
+ const content = data.errors.extensions ? unavailable("Extension queue unavailable", data.errors.extensions) :
+  table(["Taxpayer", "Tax", "Period", "Requested until", ""], rows, "No filing extensions are awaiting review.");
+ return filings + panel("Pending extensions", content,
+  extensions?.next ? '<button class="button secondary" id="ops-more-extensions" type="button">More requests</button>' : "");
 }
 function businessPage(s, data) {
  const calendar = data.calendar;
  if (!calendar) return "";
- const open = commissioner(s) && calendar.taxpayer.type === "business" ? '<button class="button" id="ops-register" type="button">Open tax account</button>' : "";
- const accounts = calendar.registrations.map(row => cell(taxLabel(row.type)) + cell(row.type === "sales" ? "Monthly" : "Quarterly") + cell(row.effectiveDate) + cell(row.status));
- return panel("Business tax registrations", table(["Tax account", "Filing frequency", "Effective date", "Status"], accounts, "No sales tax or employer withholding accounts are registered."), open) +
+ if (calendar.taxpayer.type !== "business") return panel("Business tax registrations",
+  emptyState("A business taxpayer is required", "Sales tax and employer withholding accounts belong to registered businesses.",
+   staff(s) ? '<button class="button secondary" type="button" data-ops-select>Find a business</button>' : '<a class="link" href="#calendar">Open your tax calendar</a>'));
+ const open = commissioner(s) && calendar.registrations.length < 2 ? '<button class="button" id="ops-register" type="button">Open tax account</button>' : "";
+ const accounts = calendar.registrations.map(row => `<article class="ops-account"><div><h3>${E(taxLabel(row.type))}</h3>
+  <p>${row.type === "sales" ? "Monthly returns" : "Quarterly returns"}</p></div><span class="pill">${E(row.status)}</span>
+  <small>Effective ${E(row.effectiveDate)}</small></article>`);
+ return panel("Business tax registrations", accounts.length ? `<div class="ops-account-grid">${accounts.join("")}</div>` :
+  emptyState("No business tax accounts", "Open a sales tax or employer withholding account to start filing."), open) +
   panel("Returns and balances", table(["Tax", "Period", "Filing due", "Payment due", "Status", "Actions"], filingRows(calendar, true), "No business filing periods are registered for this year."));
 }
 function wagePage(data) {
+ if (!data.taxpayerId && !data.calendar && !data.statements && !data.errors.statements) return "";
  const calendar = data.calendar;
- if (!calendar) return "";
- const business = calendar.taxpayer.type === "business";
- const rows = (data.statements?.items || []).map(row => cell(business ? row.taxpayerName : row.employerName) + cell(row.taxYear) + cell(cash(row.wagesCents)) + cell(cash(row.withheldCents)) +
-  `<td>${actionButton("data-wage-print", row.id, "Print")}</td>`);
+ const business = calendar?.taxpayer.type === "business";
+ const rows = (data.statements?.items || []).map(row => cell(business ? row.taxpayerName : calendar ? row.employerName : row.employerName + " / " + row.taxpayerName) +
+  cell(row.taxYear) + cell(cash(row.wagesCents)) + cell(cash(row.withheldCents)) + `<td>${actionButton("data-wage-print", row.id, "Print")}</td>`);
  const issue = business && calendar.registrations.some(entry => entry.type === "payroll") ? '<button class="button" id="ops-wage-issue" type="button">Issue wage statement</button>' : "";
  const more = data.statements?.next ? '<button class="button secondary" id="ops-more-wages" type="button">More statements</button>' : "";
- return panel(business ? "Issued wage statements" : "Statements from your employers", table([business ? "Employee" : "Employer", "Tax year", "Wages", "Tax withheld", ""], rows) + more, issue);
+ return panel(business ? "Issued wage statements" : calendar ? "Statements from your employers" : "Wage statements",
+  (data.errors.statements ? unavailable("Wage statements unavailable", data.errors.statements) :
+   table([business ? "Employee" : calendar ? "Employer" : "Employer / employee", "Tax year", "Wages", "Tax withheld", ""], rows, "No wage statements have been issued.")) + more, issue);
 }
-function noticesPage(data) {
+function noticesPage(s, data) {
  const records = data.requests?.items || [];
  const letter = data.detail?.notice;
- const letters=panel("Issued notices",table(["Case","Notice","Issued",""],(data.letters?.items||[]).map(row=>cell(row.caseNumber)+cell(row.title)+cell(row.date?.slice(0,10)||"—")+
-  `<td><a class="link" href="#notices/letter_${E(row.id)}">Read notice</a></td>`),"No notices have been issued."),
-  data.letters?.next?'<button type="button" class="button secondary" id="ops-more-letters">More notices</button>':"");
- return (letter ? panel(letter.title, `<p>${E(letter.caseNumber)} · ${E(letter.issuer)}</p><div class="ops-pre">${E(letter.body)}</div>`) : "") +
-  panel("Information requests", table(["Case", "Request", "Deadline", "Items accepted", ""], records.map(row =>
-   cell(row.caseNumber) + cell(row.title) + cell(row.due) + cell(`${row.items.filter(item => item.status === "accepted").length}/${row.items.length}`) +
-   `<td>${actionButton("data-request", row.id, "Open request")}</td>`)), data.requests?.next ? '<button class="button secondary" id="ops-more-notices" type="button">More requests</button>' : "")+letters;
+ const letters = data.letters?.items || [];
+ const casesLink = staff(s) ? '<a class="link" href="#examinations">Open examinations</a>' : '<a class="link" href="#appeals">Open my appeals</a>';
+ const detail = letter ? panel(letter.title, `<div class="ops-letter"><p>${E(letter.caseNumber)} · ${E(letter.issuer)}</p><div class="ops-pre">${E(letter.body)}</div></div>`) :
+  data.errors.detail ? panel("Selected correspondence", unavailable("Could not open this record", data.errors.detail, casesLink)) :
+  data.detail && !data.detail.request ? panel("Selected correspondence", emptyState("Notice unavailable", "The notice may have been removed or may belong to another account.")) : "";
+ const requestRows = records.map(row => {
+  const accepted = row.items.filter(item => item.status === "accepted").length;
+  return `<article class="ops-inbox-row"><div><strong>${E(row.title)}</strong><span>${E(row.caseNumber)} · Due ${E(row.due)}</span></div>
+   <span class="ops-badge ${accepted === row.items.length ? "ops-badge-good" : ""}">${accepted}/${row.items.length} accepted</span>
+   ${actionButton("data-request", row.id, "Open request")}</article>`;
+ }).join("");
+ const letterRows = letters.map(row => `<article class="ops-inbox-row"><div><strong>${E(row.title)}</strong>
+  <span>${E(row.caseNumber)} · ${E(row.date?.slice(0,10) || "Date unavailable")}</span></div>
+  <a class="link" href="#notices/letter_${E(row.id)}">Read notice</a></article>`).join("");
+ return detail + '<div class="ops-inbox">' +
+  panel("Information requests", data.errors.requests ? unavailable("Information requests unavailable", data.errors.requests, casesLink) :
+   requestRows || emptyState("No information requests", "Requests from examiners will appear here when issued."),
+   data.requests?.next ? '<button class="button secondary" id="ops-more-notices" type="button">More requests</button>' : "") +
+  panel("Issued notices", data.errors.letters ? unavailable("Issued notices unavailable", data.errors.letters, casesLink) :
+   letterRows || emptyState("No issued notices", "Agency correspondence will appear here when issued."),
+   data.letters?.next ? '<button class="button secondary" id="ops-more-letters" type="button">More notices</button>' : "") + "</div>";
 }
+const workspaceInfo = {
+ calendar: ["clock", "Review due dates and filing extensions."],
+ "business-taxes": ["bank", "Manage sales tax and employer withholding."],
+ "wage-statements": ["file", "Issue or review annual wage statements."],
+ notices: ["receipt", "Read notices and respond to agency requests."]
+};
 export function operationsHTML(s, h) {
  const data = context?.page === s.page && context.uid === s.user?.uid && context.target === s.routeTarget ? context : null;
- const header = h.pageHeader(titles[s.page], s.page === "notices" ? "Review correspondence and respond to requested items." : "Manage fictional tax periods, filing obligations, and records.",
-  staff(s) && s.page !== "notices" ? '<button class="button secondary" id="ops-select" type="button">Find taxpayer</button>' : "");
- if (!data) return header + `<p class="help">${s.loading ? "Loading records…" : "No records available."}</p>`;
- if (s.page === "notices") return header + noticesPage(data);
- const filters = data.calendar ? `<div class="toolbar ops-toolbar"><div><strong>${E(data.calendar.taxpayer.name)}</strong><div class="tax-sub">Simulation date ${E(data.calendar.date)}</div></div><label>Tax year <select class="input" id="ops-year">${options(data.calendar.years.map(value => [value, value]), year)}</select></label></div>` : '<p class="help">Select a taxpayer to view their records.</p>';
+ const [icon, description] = workspaceInfo[s.page];
+ const header = `<header class="ops-header"><div class="ops-header-icon">${h.icon(icon)}</div><div><h1>${E(titles[s.page])}</h1><p>${E(description)}</p></div>
+  ${staff(s) && s.page !== "notices" ? '<button class="button" type="button" data-ops-select>Find taxpayer</button>' : ""}</header>`;
+ if (!data) return header + panel("Workspace", emptyState(s.loading ? "Loading records…" : "Workspace unavailable", s.loading ? "Retrieving agency records." : "Retry to reconnect to the agency services.", s.loading ? "" : reloadButton));
+ if (s.page === "notices") return header + noticesPage(s,data);
+ const filters = data.calendar ? `<div class="ops-context"><div><span>Taxpayer</span><strong>${E(data.calendar.taxpayer.name)}</strong></div>
+  <div><span>Simulation date</span><strong>${E(data.calendar.date)}</strong></div>
+  ${s.page !== "wage-statements" ? `<label for="ops-year">Tax year<select class="input" id="ops-year">${options(data.calendar.years.map(value => [value, value]), year)}</select></label>` : ""}</div>` :
+  data.errors.calendar ? panel("Taxpayer workspace", unavailable("Taxpayer workspace unavailable", data.errors.calendar)) :
+  staff(s) ? panel("Taxpayer workspace", emptyState("Choose a taxpayer", "Search the registry by name or taxpayer reference.",
+   '<button class="button secondary" type="button" data-ops-select>Find taxpayer</button>')) : "";
  return header + filters + (s.page === "calendar" ? calendarPage(s,data) : s.page === "business-taxes" ? businessPage(s,data) : wagePage(data));
 }
 export function openBusinessReturn(s, h, record, calendar = null) {
@@ -208,7 +307,11 @@ function extensionDialog(h, s, row) {
 }
 export function operationsBind(s,h) {
  if (!operationsPages.includes(s.page)) return;
- document.getElementById("ops-select")?.addEventListener("click", () => searchTaxpayer(h,s));
+ document.querySelectorAll("[data-ops-select]").forEach(button => button.addEventListener("click", () => searchTaxpayer(h,s)));
+ document.querySelectorAll("[data-ops-reload]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll("[data-ops-reload]").forEach(retry => retry.disabled = true);
+  h.reload();
+ }));
  const data = context;
  if (!data || data.page !== s.page || data.uid !== s.user?.uid || data.target !== s.routeTarget) return;
  const calendar = data.calendar;
@@ -268,7 +371,7 @@ export function operationsBind(s,h) {
   printDocument({heading:"Wage & withholding statement", reference:row.id, rows:[["Employer",row.employerName],["Employee",row.taxpayerName],["Tax year",row.taxYear],["Wages",cash(row.wagesCents)],["Tax withheld",cash(row.withheldCents)]]});
  });
  bind("#ops-more-wages", async () => {
-  try {const next = await loadCall("listWageStatements", {cursor:data.statements.next,taxpayerId:calendar.taxpayer.id}); if (context === data) {data.statements = {items:[...data.statements.items,...next.items],next:next.next};h.renderShell();}} catch (error) {h.toast(error.message,true);}
+  try {const next = await loadCall("listWageStatements", {cursor:data.statements.next,taxpayerId:data.taxpayerId}); if (context === data) {data.statements = {items:[...data.statements.items,...next.items],next:next.next};h.renderShell();}} catch (error) {h.toast(error.message,true);}
  });
  bind("[data-request]", button => openInformationRequest(h,s,data.requests.items.find(row => row.id === button.dataset.request)));
  bind("#ops-more-letters",async button=>{
