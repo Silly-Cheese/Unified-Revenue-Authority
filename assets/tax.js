@@ -1,4 +1,5 @@
 // Generation 2 UI: full-page tax filing wizard, examiner queues, assessments and policy control.
+import {serviceMessage, unavailableService} from "./service-status.js";
 import {call} from "./auth.js";
 import {businessFields, openBusinessReturn, periodLabel, taxLabel} from "./operations.js";
 import {printDocument} from "./documents.js";
@@ -22,7 +23,7 @@ const moneyFields={
  }
 };
 let catalog=null,returns=[],assessments=[],editing=null,step=0,preview=null,searchTerm="",statusFilter="all",yearFilter="2026";
-let loading=false,loadError="",nextCursor=null,cursors=[],archiveYear="",archiveType="",linkedFiling=null,loadedView="";
+let loading=false,loadError="",nextCursor=null,cursors=[],archiveYear="",archiveType="",linkedFiling=null,loadedView="",limitedArchive=false;
 const e=(s)=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const roleStaff=(s)=>s.me?.role!=="citizen";
 const commissioner=(s)=>s.me?.role==="commissioner";
@@ -54,10 +55,34 @@ export async function taxLoad(state){
   if(state.page==="filings"||state.page==="processing"){
    const viewer=state.user?.uid,page=state.page,target=state.routeTarget;
    const key=viewer+":"+page;
-   if(loadedView!==key){cursors=[];nextCursor=null;loadedView=key;searchTerm="";archiveYear="";archiveType="";statusFilter=page==="processing"?"submitted":"all";}
+   if(loadedView!==key){returns=[];linkedFiling=null;limitedArchive=false;cursors=[];nextCursor=null;loadedView=key;searchTerm="";archiveYear="";archiveType="";statusFilter=page==="processing"?"submitted":"all";}
    const args={filedOnly:page==="processing",q:searchTerm,year:archiveYear,type:archiveType,status:statusFilter==="all"?undefined:statusFilter,cursor:cursors.at(-1)};
-   jobs.push(call("searchTaxFilings",args).then(r=>{if(state.user?.uid===viewer&&state.page===page){returns=r.data.items||[];nextCursor=r.data.next;}}));
-   if(page==="filings"&&target&&!target.startsWith("new_"))jobs.push(call("getTaxFiling",{returnId:target}).then(r=>{if(state.user?.uid===viewer&&state.routeTarget===target)linkedFiling=r.data.filing;}));
+   const stillHere=()=>state.user?.uid===viewer&&state.page===page&&state.routeTarget===target;
+   let legacy;
+   const recent=()=>legacy??=call("listTaxReturns").then(result=>result.data.items||[]);
+   jobs.push((async()=>{
+    let result, limited=false;
+    try { result=(await call("searchTaxFilings",args)).data; }
+    catch(error){
+     if(!unavailableService(error))throw error;
+     const q=String(args.q||"").toLowerCase().trim();
+     const items=(await recent()).filter(row=>
+      (!args.filedOnly||isFiledReturn(row))&&(!args.status||row.status===args.status)&&(!args.year||row.taxYear===Number(args.year))&&
+      (!args.type||row.returnType===args.type)&&(!q||[row.caseNumber,row.id,row.taxpayerName,row.taxYear].some(value=>String(value??"").toLowerCase().includes(q))));
+     result={items,next:null};limited=true;
+    }
+    if(stillHere()){returns=result.items||[];nextCursor=result.next;limitedArchive=limited;if(limited)cursors=[];}
+   })());
+   if(page==="filings"&&target&&!target.startsWith("new_"))jobs.push((async()=>{
+    let filing;
+    try { filing=(await call("getTaxFiling",{returnId:target})).data.filing; }
+    catch(error){
+     if(!unavailableService(error))throw error;
+     filing=(await recent()).find(row=>row.id===target);
+     if(!filing)throw error;
+    }
+    if(stillHere())linkedFiling=filing;
+   })());
   }
   if(state.page==="filings"||state.page==="taxpolicy"){
    jobs.push(call("getTaxCatalog").then(r=>{catalog=r.data;}));
@@ -69,8 +94,10 @@ export async function taxLoad(state){
    jobs.push(getDocs(query(collection(db,"taxpayers"),orderBy("createdAt","desc"),limit(200)))
     .then(q=>{state.taxpayers=q.docs.map(d=>({id:d.id,...d.data()}));}));
   }
-  await Promise.all(jobs);
- }catch(err){loadError=err.message||"Could not load filing information.";}
+  const results=await Promise.allSettled(jobs);
+  const failed=results.find(result=>result.status==="rejected");
+  if(failed)loadError=serviceMessage(failed.reason);
+ }catch(err){loadError=serviceMessage(err);}
  finally{loading=false;}
 }
 export function taxPageHTML(state,h){
@@ -89,7 +116,7 @@ export function taxPageHTML(state,h){
  return h.pageHeader("Restricted module","Your role does not allow access to this section.");
 }
 export function resetTaxWorkspace(){
- returns=[];linkedFiling=null;loadedView="";cursors=[];nextCursor=null;
+ returns=[];linkedFiling=null;loadedView="";cursors=[];nextCursor=null;limitedArchive=false;loadError="";
  editing=null;
  preview=null;
  document.querySelectorAll(".tax-filing-modal").forEach(dialog=>dialog.closest(".modal-backdrop")?.remove());
@@ -125,7 +152,13 @@ function newReturnDialog(state,h){
    button.disabled=true;
    let prev;
    try{const {data}=await call("findOriginalTaxReturn",{taxpayerId,year,type:returnType});prev=data.filing;}
-   catch(err){h.toast(err.message,true);return;}
+   catch(err){
+    if(!unavailableService(err)){h.toast(serviceMessage(err),true);return;}
+    try {
+     const {data}=await call("listTaxReturns");
+     prev=data.items.find(r=>r.taxpayerId===taxpayerId&&r.taxYear===year&&r.returnType===returnType&&!r.amendedFrom);
+    }catch(fallbackError){h.toast(serviceMessage(fallbackError),true);return;}
+   }
    finally{button.disabled=false;}
    if(!el.isConnected)return;
    if(prev){
@@ -185,12 +218,15 @@ function reviewStep(state,h,policy){
 function filingFilters(examiner){
  const statuses=Object.entries(labels).filter(([key])=>!examiner||key!=="draft");
  const options=(choices,current)=>choices.map(([key,label])=>'<option value="'+e(key)+'" '+(String(key)===String(current)?"selected":"")+'>'+e(label)+'</option>').join("");
- return '<form class="toolbar tax-toolbar" id="tax-search-form"><input id="tax-search" name="q" class="input" placeholder="Taxpayer name or filing reference" value="'+e(searchTerm)+'" aria-label="Search filings">'+
+ return (loadError?'<p class="tax-info" role="status">'+e(loadError)+' <button type="button" class="link" id="tax-retry">Retry</button></p>':
+ limitedArchive?'<p class="tax-info" role="status">Showing recent filings while the full archive is unavailable. <button type="button" class="link" id="tax-retry">Retry archive</button></p>':"")+
+ '<form class="toolbar tax-toolbar" id="tax-search-form"><input id="tax-search" name="q" class="input" placeholder="Taxpayer name or filing reference" value="'+e(searchTerm)+'" aria-label="Search filings">'+
  '<select class="input" name="status" aria-label="Filing status">'+options([["all","All statuses"],...statuses],statusFilter)+'</select>'+
  '<select class="input" name="year" aria-label="Tax year">'+options([["","All years"],...Array.from({length:11},(_,i)=>[2025+i,2025+i])],archiveYear)+'</select>'+
  '<select class="input" name="type" aria-label="Tax type">'+options([["","All tax types"],...["individual","business","sales","payroll"].map(type=>[type,labelType(type)])],archiveType)+'</select><button class="button secondary">Search</button></form>';
 }
 function filingPager(){
+ if(limitedArchive)return "";
  return '<div class="ops-pagination"><button class="button secondary" type="button" id="tax-prev-page" '+(!cursors.length?"disabled":"")+'>Previous</button><span>Page '+(cursors.length+1)+'</span><button class="button secondary" type="button" id="tax-next-page" '+(!nextCursor?"disabled":"")+'>Next</button></div>';
 }
 function processingHTML(state,h){
@@ -409,6 +445,7 @@ export function taxPageBind(state,h){
  if(!taxPages.includes(state.page))return;
  h.state=state;
  document.getElementById("tax-new")?.addEventListener("click",()=>newReturnDialog(state,h));
+ document.getElementById("tax-retry")?.addEventListener("click",event=>{event.currentTarget.disabled=true;h.reload();});
  document.getElementById("tax-search-form")?.addEventListener("submit",ev=>{
   ev.preventDefault();const form=new FormData(ev.currentTarget);
   searchTerm=form.get("q");statusFilter=form.get("status");archiveYear=form.get("year");archiveType=form.get("type");cursors=[];h.reload();
