@@ -2,6 +2,8 @@
 // All operations are authorized on the server; no Firebase Storage or real documents.
 import {onCall,HttpsError} from "firebase-functions/v2/https";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
+import {calculateWorkpaperProposal} from "./case-services.js";
+import {simulationDate} from "./lib/agency-access.js";
 import {postCaseAdjustmentInTx} from "./treasury.js";
 import {canAccessTaxpayerRecord} from "./lib/portal-access.js";
 import {deriveAccount} from "./lib/treasury-engine.js";
@@ -63,7 +65,7 @@ function caseSummary(data,id){
  return {id,caseNumber:data.caseNumber,kind:data.kind,status:data.status,title:data.title,
   taxpayerId:data.taxpayerId,taxpayerName:data.taxpayerName,taxAccountId:data.taxAccountId,
   taxYear:data.taxYear,returnType:data.returnType,ownerUid:data.ownerUid||null,
-  priority:data.priority||"standard",assignedToName:data.assignedToName||"",
+  period:data.period??null,priority:data.priority||"standard",assignedToName:data.assignedToName||"",
   dueDate:data.dueDate||null,proposedTaxDueCents:data.proposedTaxDueCents??null,
   proposalStatus:data.proposalStatus||null,
   createdAt:data.createdAt?.toDate?.()?.toISOString?.()||null,
@@ -75,6 +77,7 @@ function detailVisible(record,person){
   determinationReason:record.determinationReason||"",completedAt:record.completedAt?.toDate?.()?.toISOString?.()||null};
  if(employee(person)){
   d.assignedTo=record.assignedTo||null;
+  d.workpaperBasis=record.workpaperBasis||null;
   d.proposedAgainstTaxCents=record.proposedAgainstTaxCents??null;
  }
  return d;
@@ -82,11 +85,17 @@ function detailVisible(record,person){
 export const listAgencyCases=onCall(opts,async req=>{
  const user=await actor(req);
  const col=db().collection("agencyCases");
- const snap=employee(user)?await col.orderBy("createdAt","desc").limit(200).get():
+ const date=await simulationDate();
+ const overdue=employee(user)&&req.data?.overdueOnly===true;
+ const snap=overdue?await col.where("dueDate","<",date).get():employee(user)?await col.orderBy("createdAt","desc").limit(200).get():
   await col.where("taxpayerId","==",user.taxpayerId).limit(200).get();
- const cases=snap.docs.filter(d=>(employee(user)||canAccessTaxpayerRecord(user,d.data()))&&(d.data().kind!=="investigation"||AUDITORS.includes(user.role))).map(d=>caseSummary(d.data(),d.id));
+ const cases=snap.docs.filter(d=>(employee(user)||canAccessTaxpayerRecord(user,d.data()))&&(d.data().kind!=="investigation"||AUDITORS.includes(user.role))).map(d=>({...caseSummary(d.data(),d.id),...(employee(user)?{assignedTo:d.data().assignedTo||null}:{})}));
+ if(overdue){
+  const open=cases.filter(c=>!["closed","resolved"].includes(c.status)).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  return {cases:open.slice(0,200),limit:200,kinds:CASE_TYPES,date,total:open.length};
+ }
  cases.sort((x,y)=>String(y.createdAt).localeCompare(String(x.createdAt)));
- return {cases,limit:200,kinds:CASE_TYPES};
+ return {cases,limit:200,kinds:CASE_TYPES,date};
 });
 export const getAgencyCase=onCall(opts,async req=>{
  const user=await actor(req),caseId=validateId(req.data?.caseId);
@@ -122,6 +131,7 @@ export const createAgencyCase=onCall(opts,async req=>{
  if(!employee(user)&&(!canAccessTaxpayerRecord(user,acct)))
   fail("permission-denied","You may appeal only your own tax account.");
  if(kind==="collection"&&acct.outstandingCents<=0)fail("failed-precondition","No collectible assessed balance exists.");
+ if(kind==="collection"&&acct.collectionHold?.until>=(await simulationDate()))fail("failed-precondition","The account has an active collection hold.");
  const priority=String(req.data?.priority||"standard");
  if(!["standard","priority","urgent"].includes(priority))fail("invalid-argument","Invalid priority.");
  const dueDate=optionalDate(req.data?.dueDate);
@@ -130,7 +140,7 @@ export const createAgencyCase=onCall(opts,async req=>{
  const batch=db().batch();
  batch.create(ref,{caseNumber,kind,status:initialCaseStatus(kind),title,summary,
   taxAccountId:accountKey,taxpayerId:acct.taxpayerId,taxpayerName:acct.taxpayerName,
-  ownerUid:acct.ownerUid||null,taxYear:acct.taxYear,returnType:acct.returnType,
+  ownerUid:acct.ownerUid||null,taxYear:acct.taxYear,returnType:acct.returnType,period:acct.period??null,
   priority:employee(user)?priority:"standard",dueDate:employee(user)?dueDate:null,
   assignedTo:null,assignedToName:"",createdBy:user.uid,createdByName:user.displayName,
   createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
@@ -191,12 +201,22 @@ export const advanceAgencyCase=onCall(opts,async req=>{
    fail("failed-precondition","This state change is not permitted.");
   if(c.proposalStatus==="pending"&&["closed","resolved"].includes(status))
    fail("failed-precondition","Resolve the pending financial adjustment first.");
-  if(c.kind==="collection"&&status==="resolved"){
-   const acctSnap=await tx.get(db().collection("treasuryAccounts").doc(c.taxAccountId));
-   if(!acctSnap.exists||deriveAccount(acctSnap.data()).outstandingCents>0)
+  let collectionClosure=null;
+  const accountRef=db().collection("treasuryAccounts").doc(c.taxAccountId);
+  const ending=["closed","resolved"].includes(status);
+  const account=(c.kind==="collection"||c.kind==="appeal"&&ending)?(await tx.get(accountRef)).data():null;
+  if(c.kind==="collection"&&!ending&&account?.collectionHold?.until>=(await simulationDate(tx)))
+   fail("failed-precondition","Release the active collection hold before progressing this case.");
+  if(c.kind==="collection"&&ending){
+   if(!account)fail("not-found","Collection account is unavailable.");
+   if(status==="resolved"&&deriveAccount(account).outstandingCents>0)
     fail("failed-precondition","A collection case can be marked resolved only after the assessed balance is cleared.");
+   if(!c.collectionClosure)collectionClosure={reason,outstandingCents:account.outstandingCents,
+    assessedCents:account.assessedCents,paidCents:account.directPaymentsCents,at:FieldValue.serverTimestamp(),officer:user.displayName};
   }
-  tx.update(ref,{status,updatedAt:FieldValue.serverTimestamp(),
+  if(account?.collectionHold&&(account.collectionHold.appealId===caseId||account.collectionHold.caseId===caseId))
+   tx.update(accountRef,{collectionHold:null,updatedAt:FieldValue.serverTimestamp()});
+  tx.update(ref,{status,updatedAt:FieldValue.serverTimestamp(),...(collectionClosure?{collectionClosure}:{}),
    ...(status==="closed"?{completedAt:FieldValue.serverTimestamp(),resolution:reason}:{})});
   tx.create(db().collection("agencyCaseEvents").doc(),timeline(user,caseId,"status",
    c.status+" → "+status+": "+reason,c.kind==="investigation"?"internal":"taxpayer"));
@@ -215,6 +235,10 @@ export const issueAgencyNotice=onCall(opts,async req=>{
   const snap=await tx.get(ref);if(!snap.exists)fail("not-found","Case not found.");
   const c=snap.data();if(c.status==="closed")fail("failed-precondition","Closed cases cannot issue new notices.");
   if(c.kind==="investigation")permit(user,AUDITORS);
+  if(c.kind==="collection"&&type==="collection_notice"){
+   const account=(await tx.get(db().collection("treasuryAccounts").doc(c.taxAccountId))).data();
+   if(account?.collectionHold?.until>=(await simulationDate(tx)))fail("failed-precondition","The account has an active collection hold.");
+  }
   const text="FICTIONAL ROLEPLAY NOTICE — UNIFIED REVENUE AUTHORITY\n\n"+body+
    "\n\nCase reference: "+c.caseNumber+"\nThis document has no legal effect.";
   tx.create(noticeRef,{caseId,caseNumber:c.caseNumber,type,title,body:text,
@@ -229,23 +253,26 @@ export const issueAgencyNotice=onCall(opts,async req=>{
 });
 export const proposeAgencyAdjustment=onCall(opts,async req=>{
  const user=await actor(req);permit(user,AUDITORS);
- const caseId=validateId(req.data?.caseId),amount=cents(req.data?.revisedTaxDollars);
+ const caseId=validateId(req.data?.caseId),source=req.data?.workpaperCaseId;
  const reason=required(req.data?.reason,"Proposed adjustment rationale",20,2000);
  const ref=db().collection("agencyCases").doc(caseId);
  await db().runTransaction(async tx=>{
   const snap=await tx.get(ref);if(!snap.exists)fail("not-found","Case not found.");
   const c=snap.data();
+  if(c.taxpayerId===user.taxpayerId||c.ownerUid===user.uid)fail("permission-denied","You cannot propose an adjustment to your own account.");
   if(!["audit","appeal"].includes(c.kind)||!["under_review","proposed_adjustment","awaiting_decision"].includes(c.status))
    fail("failed-precondition","Adjustment proposals require an open examination or appeal review.");
   if(c.proposalStatus==="pending")fail("failed-precondition","Resolve the existing proposal before replacing it.");
   const acctSnap=await tx.get(db().collection("treasuryAccounts").doc(c.taxAccountId));
   if(!acctSnap.exists)fail("not-found","Tax account not found.");
   const acct=deriveAccount(acctSnap.data());
+  const findings=source?await calculateWorkpaperProposal(tx,c,acct,source):null;
+  const amount=findings?.amount??cents(req.data?.revisedTaxDollars);
   if(amount===acct.assessedCents)fail("invalid-argument","The proposed assessed amount must change the existing assessment.");
   const proposalRevision=Number(c.proposalRevision||0)+1;
   tx.update(ref,{status:c.kind==="appeal"?"awaiting_decision":"proposed_adjustment",
    proposalStatus:"pending",proposedTaxDueCents:amount,proposedAgainstTaxCents:acct.assessedCents,
-   proposalReason:reason,proposalBy:user.uid,proposalByName:user.displayName,proposalRevision,
+   proposalReason:reason,workpaperBasis:findings,proposalBy:user.uid,proposalByName:user.displayName,proposalRevision,
    updatedAt:FieldValue.serverTimestamp()});
   tx.create(db().collection("agencyCaseEvents").doc(),timeline(user,caseId,"adjustment_proposed",
    "Proposed a revised tax assessment, pending supervisory authorization.","taxpayer",
@@ -264,6 +291,7 @@ export const determineAgencyAdjustment=onCall(opts,async req=>{
  await db().runTransaction(async tx=>{
   const snap=await tx.get(ref);if(!snap.exists)fail("not-found","Case not found.");
   const c=snap.data();
+  if(c.taxpayerId===user.taxpayerId||c.ownerUid===user.uid)fail("permission-denied","You cannot determine an adjustment to your own account.");
   if(c.proposalStatus!=="pending"||!["audit","appeal"].includes(c.kind))
    fail("failed-precondition","No pending examination adjustment exists.");
   if(c.proposalBy===user.uid&&user.role!=="commissioner")
@@ -282,6 +310,7 @@ export const determineAgencyAdjustment=onCall(opts,async req=>{
    determinedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
    ...(delta?{approvedTaxDueCents:delta.newTaxCents,adjustmentJournalId:refKey,
     resolution:"Financial adjustment approved: "+reason}:{})});
+  if(decision==="approve"&&acct.collectionHold?.appealId===caseId)tx.update(acctRef,{collectionHold:null});
   if(delta)tx.create(db().collection("agencyCaseAdjustments").doc(refKey),{
    caseId,taxAccountId:c.taxAccountId,taxpayerId:c.taxpayerId,ownerUid:c.ownerUid||null,
    caseNumber:c.caseNumber,oldTaxCents:delta.oldTaxCents,newTaxCents:delta.newTaxCents,

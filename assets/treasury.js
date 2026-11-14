@@ -1,8 +1,10 @@
 // Generation 3 — Treasury & Financial Operations (fictional RP).
+import {periodLabel,taxLabel} from "./operations.js";
+import {printDocument} from "./documents.js";
 import {call} from "./auth.js";
 export const treasuryPages=["treasury","payments","refunds","plans","ledger"];
 let data={accounts:[],receipts:[],refunds:[],plans:[],journals:[]},overview=null;
-let selected="";let search="";let busy=false;
+let selected="",search="",loadKey="",linked=null;
 const escape=(value)=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 const dollars=(n)=>"$"+(Number(n||0)/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const date=(val)=>{if(!val)return "—";const d=val?.toDate?val.toDate():new Date(val);return Number.isNaN(d.getTime())?"—":d.toLocaleDateString("en-US",{year:"numeric",month:"short",day:"numeric"});};
@@ -12,7 +14,7 @@ const isSupervisor=(s)=>["supervisor","commissioner"].includes(s.me?.role);
 const allowReconcile=(s)=>["supervisor","commissioner","auditor"].includes(s.me?.role);
 const accounts=()=>data.accounts||[];
 const getSelected=()=>accounts().find(a=>a.id===selected)||accounts()[0];
-const accountLabel=(a)=>a.taxpayerName+" · "+a.taxYear+" · "+(a.returnType==="business"?"Business":"Individual");
+const accountLabel=(a)=>a.taxpayerName+" · "+periodLabel(a.returnType,a.taxYear,a.period)+" · "+taxLabel(a.returnType);
 const row=([left,right])=>'<div class="t-row"><span>'+escape(left)+'</span><strong>'+escape(right)+'</strong></div>';
 const metric=(title,value,foot)=>'<div class="t-metric"><small>'+escape(title)+'</small><strong>'+escape(value)+'</strong><span>'+escape(foot)+'</span></div>';
 const table=(heads,rows,emptyText)=>rows.length?'<div class="table-wrap"><table class="table"><thead><tr>'+heads.map(v=>'<th>'+escape(v)+'</th>').join("")+'</tr></thead><tbody>'+rows.join("")+'</tbody></table></div>':empty(emptyText);
@@ -31,9 +33,24 @@ function moneyCards(a){
 }
 export async function treasuryLoad(state){
  if(!treasuryPages.includes(state.page))return;
- const work=[call("getTreasuryData").then(r=>{data=r.data; if(!accounts().some(a=>a.id===selected))selected=accounts()[0]?.id||"";})];
- if(isStaff(state))work.push(call("getTreasuryOverview").then(r=>overview=r.data));
+ const uid=state.user?.uid,page=state.page,target=state.routeTarget;
+ const key=[uid,page,target].join(":");
+ if(loadKey!==key){loadKey=key;data={accounts:[],receipts:[],refunds:[],plans:[],journals:[]};linked=null;search="";}
+ const live=()=>uid===state.user?.uid&&page===state.page&&target===state.routeTarget;
+ const work=[call("getTreasuryData").then(r=>{if(live()){data=r.data;if(!accounts().some(a=>a.id===selected))selected=accounts()[0]?.id||"";}})];
+ if(isStaff(state))work.push(call("getTreasuryOverview").then(r=>{if(live())overview=r.data;}));
  await Promise.all(work);
+ if(!live()||!target)return;
+ const kind=page==="plans"?"plan":page==="refunds"?"refund":page==="payments"&&target.startsWith("account_")?"account":page==="payments"?"receipt":null;
+ if(!kind)return;
+ const id=kind==="account"?target.slice(8):target;
+ const {data:response}=await call("getTreasuryRecord",{kind,id});
+ if(!live())return;
+ if(kind==="account"){
+  if(!accounts().some(a=>a.id===id))data.accounts.unshift(response.record);
+  selected=id;
+ }
+ linked={kind,record:response.record};
 }
 function treasuryPage(s,h){
  const a=getSelected();
@@ -43,10 +60,10 @@ function treasuryPage(s,h){
  return h.pageHeader("Treasury command","Financial operations, taxpayer balances and fictional government revenue in one place.")+
  dashboard+accountPicker()+moneyCards(a)+control+
  '<div class="grid-two"><div>'+panel("Current tax account",a?'<div class="t-account-summary">'+[
- ["Registered taxpayer",a.taxpayerName],["Tax year and type",a.taxYear+" · "+a.returnType],
+ ["Registered taxpayer",a.taxpayerName],["Tax period",periodLabel(a.returnType,a.taxYear,a.period)+" · "+taxLabel(a.returnType)],
  ["Tax declared as prepaid",dollars(a.declaredPaymentsCents)],["Fictional refunds paid",dollars(a.refundsDisbursedCents)],
  ["Reserved refunds",dollars(a.reservedRefundCents)],["Available to request",dollars(a.refundAvailableCents)],
- ["Tax account reference",a.id]
+ ["Tax account reference",a.id],["Payment deadline",a.paymentDue||"—"],["Assessed penalties",dollars(a.penaltyCents)]
  ].map(x=>row(x)).join("")+'</div>':empty("Submit and approve a fictional tax return first."),
  a?'<button class="button secondary" id="t-new-payment">Record payment</button>':"")+'</div><div>'+
  panel("Operational activity",'<div class="t-actions">'+[
@@ -59,12 +76,12 @@ function treasuryPage(s,h){
 }
 function paymentsPage(s,h){
  const rows=(data.receipts||[]).filter(r=>(r.taxpayerName+" "+r.id+" "+r.taxYear).toLowerCase().includes(search.toLowerCase()))
-  .map(r=>'<tr><td><strong>RCPT-'+escape(r.id.slice(0,8).toUpperCase())+'</strong><div class="tax-sub">'+date(r.createdAt)+'</div></td><td>'+escape(r.taxpayerName)+'</td><td>'+escape(r.taxYear)+'</td><td>'+escape(r.method.replaceAll("_"," "))+'</td><td class="tax-mono">'+dollars(r.amountCents)+'</td><td>'+status(r.status)+'</td></tr>');
+  .map(r=>'<tr><td><strong>RCPT-'+escape(r.id.slice(0,8).toUpperCase())+'</strong><div class="tax-sub">'+date(r.createdAt)+'</div></td><td>'+escape(r.taxpayerName)+'</td><td>'+escape(periodLabel(r.returnType,r.taxYear,r.period))+'</td><td>'+escape(r.method.replaceAll("_"," "))+'</td><td class="tax-mono">'+dollars(r.amountCents)+'</td><td>'+status(r.status)+'</td><td><button class="link" type="button" data-t-receipt="'+escape(r.id)+'">Print receipt</button></td></tr>');
  return h.pageHeader("Payments & receipts","Post fictional tax payments with automatic balance updates and a double-entry journal.",
   '<button id="t-new-payment" class="button">+ Record payment</button>')+
  accountPicker()+moneyCards(getSelected())+
  panel("Posted payment receipts",'<div class="toolbar"><input class="input" id="t-search" value="'+escape(search)+'" placeholder="Search receipts or taxpayers" aria-label="Search receipts"></div>'+
- table(["Receipt","Taxpayer","Year","Method","Amount","Status"],rows,"Post a fictional payment to create the first receipt."))+
+ table(["Receipt","Taxpayer","Period","Method","Amount","Status",""],rows,"Post a fictional payment to create the first receipt."))+
  '<p class="tax-disclaimer">Payment buttons generate simulated accounting entries only. No actual bank or card payments occur.</p>';
 }
 function refundsPage(s,h){
@@ -124,6 +141,7 @@ function withWait(el,btn,fn){
 }
 function paymentDialog(h){
  const a=requireAccount(h);if(!a)return;
+ const requestId=crypto.randomUUID();
  modal(h,"Post simulated tax payment",'<div class="t-info"><strong>'+escape(accountLabel(a))+'</strong><br>Outstanding: '+dollars(a.outstandingCents)+'</div>'+
  '<div class="field"><label for="t-amount">Payment amount ($)</label><input class="input" id="t-amount" type="number" step=".01" min=".01" max="'+(a.outstandingCents/100)+'" required></div>'+
  '<div class="field"><label for="t-method">Payment method</label><select class="input" id="t-method">'+
@@ -133,10 +151,11 @@ function paymentDialog(h){
  '<button class="button" id="t-confirm">Post payment</button>',el=>{
  const btn=el.querySelector("#t-confirm");
  btn.addEventListener("click",()=>withWait(el,btn,async()=>{
-  await call("recordTreasuryPayment",{taxpayerId:a.taxpayerId,taxYear:a.taxYear,returnType:a.returnType,
+  const response=await call("recordTreasuryPayment",{requestId,accountId:a.id,taxpayerId:a.taxpayerId,taxYear:a.taxYear,returnType:a.returnType,
    amount:el.querySelector("#t-amount").value,method:el.querySelector("#t-method").value,
    description:el.querySelector("#t-note").value});
-  el.remove();h.toast("Payment posted to fictional ledger.");await h.reload();
+  el.remove();h.toast("Payment posted to fictional ledger.");
+  if(h.state.page==="payments")location.hash="payments/"+response.data.receiptId;else await h.reload();
  }));
  });
 }
@@ -148,7 +167,7 @@ function refundRequestDialog(h){
  '<button class="button" id="t-confirm">Submit refund request</button>',el=>{
  const btn=el.querySelector("#t-confirm");
  btn.addEventListener("click",()=>withWait(el,btn,async()=>{
-  await call("requestTreasuryRefund",{taxpayerId:a.taxpayerId,taxYear:a.taxYear,returnType:a.returnType,
+  await call("requestTreasuryRefund",{accountId:a.id,taxpayerId:a.taxpayerId,taxYear:a.taxYear,returnType:a.returnType,
    amount:el.querySelector("#t-amount").value,reason:el.querySelector("#t-note").value});
   el.remove();h.toast("Refund request submitted.");await h.reload();
  }));
@@ -183,7 +202,7 @@ function planRequestDialog(h){
  '<button class="button" id="t-confirm">Submit application</button>',el=>{
  const btn=el.querySelector("#t-confirm");
  btn.addEventListener("click",()=>withWait(el,btn,async()=>{
-  await call("requestTreasuryPlan",{taxpayerId:a.taxpayerId,taxYear:a.taxYear,returnType:a.returnType,
+  await call("requestTreasuryPlan",{accountId:a.id,taxpayerId:a.taxpayerId,taxYear:a.taxYear,returnType:a.returnType,
     installmentCount:Number(el.querySelector("#t-count").value),reason:el.querySelector("#t-plan-reason").value});
   el.remove();h.toast("Installment arrangement requested.");await h.reload();
  }));
@@ -192,7 +211,12 @@ function planRequestDialog(h){
 function planReviewDialog(h,s,p){
  const actions=isSupervisor(s)&&p.status==="requested"?
  '<button class="button secondary" data-plan-decision="deny">Deny</button><button class="button" data-plan-decision="approve">Approve plan</button>':"";
- const schedule=(p.schedule||[]).map(i=>'<div class="t-row"><span>'+escape(i.dueDate)+'</span><strong>'+dollars(i.amountCents)+'</strong></div>').join("");
+ let total=0;
+ const schedule=(p.schedule||[]).map(i=>{
+  const remaining=i.amountCents-Math.min(i.amountCents,Math.max(0,(p.paidCents||0)-total));total+=i.amountCents;
+  const state=remaining===0?"Paid":p.status!=="active"?"Scheduled":i.dueDate<(data.date||"")?"Overdue":"Upcoming";
+  return '<div class="t-row"><span>'+escape(i.dueDate)+' · '+state+'</span><strong>'+dollars(i.amountCents)+(remaining>0&&remaining<i.amountCents?' · '+dollars(remaining)+' remaining':'')+'</strong></div>';
+ }).join("");
  modal(h,"Installment arrangement · "+p.id.slice(0,8).toUpperCase(),
  '<div class="t-account-summary">'+[["Taxpayer",p.taxpayerName],["Original liability",dollars(p.amountCents)],["Amount paid",dollars(p.paidCents)],
  ["Remaining scheduled",dollars(Math.max(0,p.amountCents-(p.paidCents||0)))],["Status",p.status]].map(row).join("")+'</div>'+
@@ -216,6 +240,13 @@ function reconcileDialog(h){
  }));
  });
 }
+function printReceipt(h,r){
+ try{printDocument({heading:"Simulated payment receipt",reference:"RCPT-"+r.id.slice(0,8).toUpperCase(),rows:[["Taxpayer",r.taxpayerName],["Tax type",taxLabel(r.returnType)],["Tax period",periodLabel(r.returnType,r.taxYear,r.period)],["Payment",dollars(r.amountCents)],["Method",String(r.method||"").replaceAll("_"," ")],["Posted",date(r.postedAt)],["Transaction reference",r.id]]});}catch(err){h.toast(err.message,true);}
+}
+function showReceipt(h,r){
+ modal(h,"Simulated payment receipt",'<div class="t-account-summary">'+[["Taxpayer",r.taxpayerName],["Amount",dollars(r.amountCents)],["Period",periodLabel(r.returnType,r.taxYear,r.period)],["Reference",r.id]].map(row).join("")+'</div>',
+ '<button class="button" id="t-print-receipt">Print receipt</button>',el=>el.querySelector("#t-print-receipt").addEventListener("click",()=>printReceipt(h,r)));
+}
 function journalDialog(h,j){
  h.modal("Journal entry "+j.id,'<div class="modal-body"><div class="t-info">'+escape(j.description)+' · '+date(j.postedAt)+'</div>'+
  table(["GL account","Debit","Credit"],(j.lines||[]).map(l=>'<tr><td>'+escape(l.code)+'</td><td>'+dollars(l.debitCents)+'</td><td>'+dollars(l.creditCents)+'</td></tr>'),"No journal lines.")+
@@ -223,6 +254,13 @@ function journalDialog(h,j){
 }
 export function treasuryPageBind(s,h){
  if(!treasuryPages.includes(s.page))return;
+ if(linked&&!s.loading){
+  const {kind,record}=linked;linked=null;
+  if(kind==="plan")planReviewDialog(h,s,record);
+  if(kind==="refund")refundReviewDialog(h,s,record);
+  if(kind==="receipt")showReceipt(h,record);
+ }
+ document.querySelectorAll("[data-t-receipt]").forEach(button=>button.addEventListener("click",()=>{const receipt=data.receipts.find(item=>item.id===button.dataset.tReceipt);if(receipt)printReceipt(h,receipt);}));
  document.getElementById("treasury-account")?.addEventListener("change",ev=>{selected=ev.target.value;h.renderShell();});
  document.getElementById("t-new-payment")?.addEventListener("click",()=>paymentDialog(h));
  document.getElementById("t-refund-new")?.addEventListener("click",()=>refundRequestDialog(h));

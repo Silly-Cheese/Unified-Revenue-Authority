@@ -98,7 +98,7 @@ export const assignRole=onCall(callable,async request=>{
 export {getTaxCatalog,setTaxPolicy,previewTaxReturn,saveTaxDraft,submitTaxReturn,listTaxReturns,reviewTaxReturn,beginTaxAmendment,listTaxAssessments} from "./tax.js";
 
 // Generation 3: fictional treasury accounting, payments, refunds and reconciliation.
-export {getTreasuryData,getTreasuryOverview,recordTreasuryPayment,requestTreasuryRefund,decideTreasuryRefund,disburseTreasuryRefund,requestTreasuryPlan,decideTreasuryPlan,reconcileTreasury} from "./treasury.js";
+export {getTreasuryData,getTreasuryOverview,getTreasuryRecord,recordTreasuryPayment,requestTreasuryRefund,decideTreasuryRefund,disburseTreasuryRefund,requestTreasuryPlan,decideTreasuryPlan,reconcileTreasury} from "./treasury.js";
 
 // Generation 4: agency cases, audit workflow, collections, appeals and investigations.
 export {listAgencyCases,getAgencyCase,createAgencyCase,addAgencyCaseNote,assignAgencyCase,advanceAgencyCase,issueAgencyNotice,proposeAgencyAdjustment,determineAgencyAdjustment,listAgencyOfficers} from "./cases.js";
@@ -112,3 +112,8 @@ export {getExecutiveReport,issueExecutiveReport,listExecutiveReports,getIssuedEx
 
 // Commissioner-only activation of existing NPC or agency-created taxpayer portals.
 export {activateTaxpayerPortal,resetConvertedPortalPassword,getTaxpayerPortalOverview} from "./portal.js";
+
+export {searchTaxFilings,getTaxFilingHistory,getTaxFiling,getWageStatementTotals,findOriginalTaxReturn} from "./tax.js";
+export {getFilingCalendar,setFilingSchedule,openBusinessTaxAccount,saveBusinessTaxReturn,reviewBusinessTaxReturn,requestFilingExtension,decideFilingExtension,listFilingExtensions,issueWageStatement,listWageStatements} from "./business-tax.js";
+export {createInformationRequest,updateInformationRequest,listInformationRequests,getInformationRequest,saveExaminationWorkpaper,getExaminationWorkpapers,previewExaminationAdjustment,collectionAction,getCollectionDetails,getCaseAssessment} from "./case-services.js";
+export {getAgencyWorkload,getTaxpayerActionCenter,getPortalNotice,listPortalNotices,findOperationsTaxpayer} from "./action-center.js";

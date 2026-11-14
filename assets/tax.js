@@ -1,5 +1,7 @@
 // Generation 2 UI: full-page tax filing wizard, examiner queues, assessments and policy control.
 import {call} from "./auth.js";
+import {businessFields, openBusinessReturn, periodLabel, taxLabel} from "./operations.js";
+import {printDocument} from "./documents.js";
 import {db} from "./firebase.js";
 import {collection,getDocs,query,orderBy,limit} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
@@ -20,18 +22,18 @@ const moneyFields={
  }
 };
 let catalog=null,returns=[],assessments=[],editing=null,step=0,preview=null,searchTerm="",statusFilter="all",yearFilter="2026";
-let loading=false,loadError="";
+let loading=false,loadError="",nextCursor=null,cursors=[],archiveYear="",archiveType="",linkedFiling=null,loadedView="";
 const e=(s)=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const roleStaff=(s)=>s.me?.role!=="citizen";
 const commissioner=(s)=>s.me?.role==="commissioner";
-const canDetermine=(s)=>["commissioner","supervisor","staff"].includes(s.me?.role);
+const canDetermine=(s,type)=>["commissioner","supervisor","staff",...(businessFields[type]?["auditor"]:[])].includes(s.me?.role);
 export const isFiledReturn=r=>["submitted","information_requested","rejected","accepted"].includes(r.status);
 const empty=(title,desc)=>'<div class="tax-empty"><div class="tax-empty-mark">URA</div><h3>'+e(title)+'</h3><p>'+e(desc)+'</p></div>';
 const status=(s)=>'<span class="tax-status '+e(s)+'">'+e(labels[s]||s)+'</span>';
 const metric=(name,value,foot)=>'<div class="tax-metric"><small>'+e(name)+'</small><strong>'+e(value)+'</strong><span>'+e(foot||"")+'</span></div>';
 const policyOf=(year,type)=>catalog?.policies?.find(p=>p.id===String(year)+"_"+type);
 const yearsSelect=(selected)=>((catalog?.years)||[2025,2026,2027,2028]).map(y=>'<option value="'+y+'" '+(Number(selected)===Number(y)?"selected":"")+'>'+y+'</option>').join("");
-function labelType(type){return type==="business"?"Business income tax":"Individual income tax";}
+const labelType=taxLabel;
 function defaultInputs(type){
  const data={};
  for(const category of Object.values(moneyFields[type]))for(const [key] of category)data[key]="0.00";
@@ -50,8 +52,12 @@ export async function taxLoad(state){
  try{
   const jobs=[];
   if(state.page==="filings"||state.page==="processing"){
-   const viewer=state.user?.uid;
-   jobs.push(call("listTaxReturns").then(r=>{if(state.user?.uid===viewer)returns=r.data.items||[];}));
+   const viewer=state.user?.uid,page=state.page,target=state.routeTarget;
+   const key=viewer+":"+page;
+   if(loadedView!==key){cursors=[];nextCursor=null;loadedView=key;searchTerm="";archiveYear="";archiveType="";statusFilter=page==="processing"?"submitted":"all";}
+   const args={filedOnly:page==="processing",q:searchTerm,year:archiveYear,type:archiveType,status:statusFilter==="all"?undefined:statusFilter,cursor:cursors.at(-1)};
+   jobs.push(call("searchTaxFilings",args).then(r=>{if(state.user?.uid===viewer&&state.page===page){returns=r.data.items||[];nextCursor=r.data.next;}}));
+   if(page==="filings"&&target&&!target.startsWith("new_"))jobs.push(call("getTaxFiling",{returnId:target}).then(r=>{if(state.user?.uid===viewer&&state.routeTarget===target)linkedFiling=r.data.filing;}));
   }
   if(state.page==="filings"||state.page==="taxpolicy"){
    jobs.push(call("getTaxCatalog").then(r=>{catalog=r.data;}));
@@ -68,6 +74,14 @@ export async function taxLoad(state){
  finally{loading=false;}
 }
 export function taxPageHTML(state,h){
+ if(state.page==="filings"&&state.routeTarget?.startsWith("new_")&&!state.loading&&!editing){
+  const [,year,type,id]=state.routeTarget.split("_");
+  if(["individual","business"].includes(type)&&Number(year)>=2025&&Number(year)<=2035&&/^[A-Za-z0-9]{20}$/.test(id)&&
+   (roleStaff(state)||id===state.me?.taxpayerId)){
+   editing={id:null,taxYear:Number(year),returnType:type,taxpayerId:id,data:defaultInputs(type)};step=0;preview=null;
+   history.replaceState(null,"",location.pathname+location.search+"#filings");state.routeTarget="";
+  }
+ }
  if(state.page==="filings")return editing?formHTML(state,h):filingsHTML(state,h);
  if(state.page==="processing")return processingHTML(state,h);
  if(state.page==="assessments")return assessmentsHTML(state,h);
@@ -75,18 +89,14 @@ export function taxPageHTML(state,h){
  return h.pageHeader("Restricted module","Your role does not allow access to this section.");
 }
 export function resetTaxWorkspace(){
- returns=[];
+ returns=[];linkedFiling=null;loadedView="";cursors=[];nextCursor=null;
  editing=null;
  preview=null;
  document.querySelectorAll(".tax-filing-modal").forEach(dialog=>dialog.closest(".modal-backdrop")?.remove());
 }
 function filingsHTML(state,h){
  const own=roleStaff(state)?"Agency filing desk":"Your tax filings";
- const list=returns.filter(r=>{
-  const q=searchTerm.toLowerCase();
-  return (r.caseNumber+" "+r.taxpayerName+" "+r.taxYear).toLowerCase().includes(q)&&
-   (statusFilter==="all"||r.status===statusFilter);
- });
+ const list=returns;
  const draft=returns.filter(r=>r.status==="draft").length,awaiting=returns.filter(r=>r.status==="submitted").length;
  return h.pageHeader(own,"Manage detailed fictional returns, supporting income statements and filing submissions.",
   '<button class="button" id="tax-new">'+h.icon("plus")+' New tax return</button>')+
@@ -94,12 +104,10 @@ function filingsHTML(state,h){
  metric("Unsubmitted drafts",draft,"Editable in filing workspace")+
  metric("Awaiting review",awaiting,"Submitted for examination")+'</div>'+
  '<div class="card card-pad"><div class="section-head"><h2>Tax return register</h2><span class="pill gray">Generation 2 · Official RP cases</span></div>'+
- '<div class="toolbar tax-toolbar"><input id="tax-search" class="input" placeholder="Search case, taxpayer or year" value="'+e(searchTerm)+'" aria-label="Search return register">'+
- '<select id="tax-status-filter" class="input" aria-label="Filter by status">'+
- [['all','All statuses'],["draft","Draft"],["submitted","Submitted"],["information_requested","Information requested"],["rejected","Correction required"],["accepted","Accepted"]].map(([v,t])=>'<option value="'+v+'" '+(statusFilter===v?"selected":"")+'>'+t+'</option>').join("")+'</select></div>'+
+ filingFilters(false)+
  (list.length?'<div class="table-wrap"><table class="table"><thead><tr><th>Filing reference</th><th>Taxpayer</th><th>Year</th><th>Tax liability</th><th>Status</th><th></th></tr></thead><tbody>'+
- list.map(r=>'<tr><td><strong>'+e(r.caseNumber)+'</strong><div class="tax-sub">'+e(labelType(r.returnType))+'</div></td><td>'+e(r.taxpayerName||"Unknown")+'</td><td>'+e(r.taxYear)+'</td><td class="tax-mono">'+money(r.calculation?.taxDueCents)+'</td><td>'+status(r.status)+'</td><td><button class="link" data-tax-open="'+e(r.id)+'">'+(["draft","information_requested","rejected"].includes(r.status)?"Continue":"View")+'</button></td></tr>').join("")+'</tbody></table></div>':empty("No tax returns found","Start a new return to begin processing fictional tax information."))+
- '</div><div class="tax-disclaimer">Simulation notice: All tax figures, forms, people, policies, and rulings are fictional.</div>';
+ list.map(r=>'<tr><td><strong>'+e(r.caseNumber)+'</strong><div class="tax-sub">'+e(labelType(r.returnType))+'</div></td><td>'+e(r.taxpayerName||"Unknown")+'</td><td>'+e(periodLabel(r.returnType,r.taxYear,r.period))+'</td><td class="tax-mono">'+money(r.calculation?.taxDueCents)+'</td><td>'+status(r.status)+'</td><td><button class="link" data-tax-open="'+e(r.id)+'">'+(["draft","information_requested","rejected"].includes(r.status)?"Continue":"View")+'</button></td></tr>').join("")+'</tbody></table></div>':empty("No tax returns found","Start a new return to begin processing fictional tax information."))+
+ filingPager()+'</div><div class="tax-disclaimer">Simulation notice: All tax figures, forms, people, policies, and rulings are fictional.</div>';
 }
 function newReturnDialog(state,h){
  const active=(state.taxpayers||[]).filter(t=>t.status==="active");
@@ -108,12 +116,18 @@ function newReturnDialog(state,h){
   '<div class="field"><label for="tax-subject">Taxpayer record</label><select id="tax-subject" class="input" required>'+
   (active.length?active.map(t=>'<option value="'+e(t.id)+'">'+e(t.fullName)+' · '+e(t.taxpayerNumber||t.id)+'</option>').join(""):'<option value="">No taxpayers available — register one first</option>')+'</select></div>';
  h.modal("Start a tax return",'<div class="modal-body"><div class="field"><label for="tax-year">Filing year</label><select id="tax-year" class="input">'+yearsSelect(2026)+'</select></div><div class="field"><label for="tax-type">Return type</label><select id="tax-type" class="input"><option value="individual">Individual income tax</option><option value="business">Business income tax</option></select></div>'+taxpayers+'<div class="tax-info">Drafts are confidential and saved through a secured Firebase Function. A return becomes an agency case when submitted.</div></div><div class="modal-bottom"><button class="button secondary" data-close>Cancel</button><button class="button" id="begin-filing">Begin filing</button></div>',el=>{
-  el.querySelector("#begin-filing").addEventListener("click",()=>{
+  el.querySelector("#begin-filing").addEventListener("click",async event=>{
    const year=Number(el.querySelector("#tax-year").value);
    const returnType=el.querySelector("#tax-type").value;
    const taxpayerId=citizen?state.me.taxpayerId:el.querySelector("#tax-subject").value;
    if(!taxpayerId){h.toast("Register a taxpayer before starting this form.",true);return;}
-   const prev=returns.find(r=>r.taxpayerId===taxpayerId&&r.taxYear===year&&r.returnType===returnType&&!r.amendedFrom);
+   const button=event.currentTarget;
+   button.disabled=true;
+   let prev;
+   try{const {data}=await call("findOriginalTaxReturn",{taxpayerId,year,type:returnType});prev=data.filing;}
+   catch(err){h.toast(err.message,true);return;}
+   finally{button.disabled=false;}
+   if(!el.isConnected)return;
    if(prev){
     if(["accepted","submitted"].includes(prev.status)){h.toast("This return has already been filed. Open it to review or amend.",true);return;}
     editing={id:prev.id,taxYear:year,returnType,taxpayerId,data:{...prev.data}};
@@ -148,6 +162,7 @@ function moneyStep(state,h,category){
  const sub=isIncome?"Record the fictional income and earnings that apply to this return.":"Declare allowable fictional expenses, credits, withholding, and estimated payments.";
  const fields=moneyFields[editing.returnType][category];
  return '<div class="tax-section-overline">SECTION '+(isIncome?"II":"III")+' · '+(isIncome?"FINANCIAL DECLARATIONS":"TAX ADJUSTMENTS")+'</div><h2>'+heading+'</h2><p class="tax-section-desc">'+sub+'</p><div class="tax-input-grid">'+fields.map(([k,t])=>field(h,k,t)).join("")+'</div>'+
+ (editing.returnType==="individual"?'<button class="link" type="button" id="tax-use-statements">Use issued employer statements</button>':'')+
  '<label class="tax-form-field" style="margin-top:20px"><span>Supporting explanation (optional)</span><textarea class="input" data-form-field="explanation" rows="4" maxlength="1000" placeholder="Describe unusual fictional tax circumstances or source records.">'+e(editing.data.explanation||"")+'</textarea></label>'+
  '<div class="tax-info">Financial fields represent fictional amounts in USD. All assessments will be recalculated securely by the agency server before submission.</div>';
 }
@@ -167,21 +182,24 @@ function reviewStep(state,h,policy){
  '<label class="tax-attest"><input id="tax-attest" type="checkbox" '+(editing.data.attested?"checked":"")+'> <span>I declare these fictional financial entries to be accurate within the roleplay scenario and understand submission creates an official simulation case.</span></label>'+
  '<p class="tax-sub">Submission does not charge money or create an actual tax liability. Accepted returns create simulated assessments only.</p>';
 }
-function filteredQueue(){
- return returns.filter(r=>r.status==="submitted"&&
- (r.caseNumber+" "+r.taxpayerName+" "+r.taxYear).toLowerCase().includes(searchTerm.toLowerCase()));
+function filingFilters(examiner){
+ const statuses=Object.entries(labels).filter(([key])=>!examiner||key!=="draft");
+ const options=(choices,current)=>choices.map(([key,label])=>'<option value="'+e(key)+'" '+(String(key)===String(current)?"selected":"")+'>'+e(label)+'</option>').join("");
+ return '<form class="toolbar tax-toolbar" id="tax-search-form"><input id="tax-search" name="q" class="input" placeholder="Taxpayer name or filing reference" value="'+e(searchTerm)+'" aria-label="Search filings">'+
+ '<select class="input" name="status" aria-label="Filing status">'+options([["all","All statuses"],...statuses],statusFilter)+'</select>'+
+ '<select class="input" name="year" aria-label="Tax year">'+options([["","All years"],...Array.from({length:11},(_,i)=>[2025+i,2025+i])],archiveYear)+'</select>'+
+ '<select class="input" name="type" aria-label="Tax type">'+options([["","All tax types"],...["individual","business","sales","payroll"].map(type=>[type,labelType(type)])],archiveType)+'</select><button class="button secondary">Search</button></form>';
+}
+function filingPager(){
+ return '<div class="ops-pagination"><button class="button secondary" type="button" id="tax-prev-page" '+(!cursors.length?"disabled":"")+'>Previous</button><span>Page '+(cursors.length+1)+'</span><button class="button secondary" type="button" id="tax-next-page" '+(!nextCursor?"disabled":"")+'>Next</button></div>';
 }
 function processingHTML(state,h){
  if(!roleStaff(state))return h.pageHeader("Access restricted","The examination division is available only to agency personnel.");
- const list=filteredQueue(),all=returns.filter(r=>r.status==="submitted");
- return h.pageHeader("Return processing center","Examiner workbench for submitted filings, discrepancy review, and formal determinations.")+
- '<div class="tax-metrics">'+metric("Awaiting determination",all.length,"Submitted returns requiring action")+
- metric("Review flags",all.filter(r=>r.calculation?.reviewFlags?.length).length,"Cases with automated indicators")+
- metric("Accepted returns",returns.filter(r=>r.status==="accepted").length,"Cases formally assessed")+'</div>'+
- '<div class="card card-pad"><div class="section-head"><h2>Examination docket</h2><span class="pill gold">Pending decisions</span></div><div class="toolbar"><input class="input" id="tax-queue-search" placeholder="Find by taxpayer or filing reference" value="'+e(searchTerm)+'"></div>'+
- (list.length?'<div class="table-wrap"><table class="table"><thead><tr><th>Return reference</th><th>Taxpayer</th><th>Tax year</th><th>Claimed refund</th><th>Review indicators</th><th></th></tr></thead><tbody>'+
- list.map(r=>'<tr><td><strong>'+e(r.caseNumber)+'</strong><div class="tax-sub">'+e(labelType(r.returnType))+'</div></td><td>'+e(r.taxpayerName)+'</td><td>'+e(r.taxYear)+'</td><td>'+money(r.calculation?.refundCents)+'</td><td>'+(r.calculation?.reviewFlags?.length?'<span class="tax-status information_requested">'+r.calculation.reviewFlags.length+' flagged</span>':'<span class="pill">Standard</span>')+'</td><td><button class="link" data-tax-review="'+e(r.id)+'">Examine</button></td></tr>').join("")+'</tbody></table></div>':empty("Processing queue clear","Newly submitted fictional returns will appear here for review."))+
- '</div><div class="tax-disclaimer">Return acceptance creates an assessment record, not a cash transfer or collection entry.</div>';
+ const rows=returns.filter(r=>r.status!=="draft");
+ return h.pageHeader("Return processing center","Find and review filed returns by reference, taxpayer, period, or status.")+
+ '<div class="card card-pad"><div class="section-head"><h2>Examination docket</h2></div>'+filingFilters(true)+
+ (rows.length?'<div class="table-wrap"><table class="table"><thead><tr><th>Return reference</th><th>Taxpayer</th><th>Tax period</th><th>Status</th><th>Review indicators</th><th></th></tr></thead><tbody>'+
+ rows.map(r=>'<tr><td><strong>'+e(r.caseNumber)+'</strong><div class="tax-sub">'+e(labelType(r.returnType))+'</div></td><td>'+e(r.taxpayerName)+'</td><td>'+e(periodLabel(r.returnType,r.taxYear,r.period))+'</td><td>'+status(r.status)+'</td><td>'+e(r.calculation?.reviewFlags?.length||0)+'</td><td><button class="link" data-tax-review="'+e(r.id)+'">'+(r.status==="submitted"?"Examine":"View filing")+'</button></td></tr>').join("")+'</tbody></table></div>':empty("No results on this page",nextCursor?"Continue to the next page to check older records.":"Check the search criteria or choose another status."))+filingPager()+'</div>';
 }
 function assessmentsHTML(state,h){
  const list=assessments.filter(a=>(a.caseNumber+" "+a.taxpayerName+" "+a.taxYear).toLowerCase().includes(searchTerm.toLowerCase()));
@@ -191,7 +209,7 @@ function assessmentsHTML(state,h){
  metric("Refund claims",money(assessments.reduce((n,a)=>n+a.refundClaimCents,0)),"Not yet disbursed")+'</div>'+
  '<div class="card card-pad"><div class="section-head"><h2>Assessment notices</h2><span class="pill gray">No Treasury posting · Gen 3</span></div><div class="toolbar"><input class="input" id="tax-assess-search" placeholder="Search assessment records" value="'+e(searchTerm)+'"></div>'+
  (list.length?'<div class="table-wrap"><table class="table"><thead><tr><th>Assessment reference</th><th>Taxpayer</th><th>Period</th><th>Tax due</th><th>Adjustment</th><th>Balance / refund</th></tr></thead><tbody>'+
- list.map(a=>'<tr><td><strong>'+e(a.caseNumber)+'</strong><div class="tax-sub">'+e(a.adjustmentKind)+'</div></td><td>'+e(a.taxpayerName)+'</td><td>'+e(a.taxYear)+'</td><td class="tax-mono">'+money(a.taxDueCents)+'</td><td class="tax-mono">'+(a.deltaTaxCents<0?"−":"+")+money(Math.abs(a.deltaTaxCents))+'</td><td>'+money(a.balanceCents)+' / '+money(a.refundClaimCents)+'</td></tr>').join("")+'</tbody></table></div>':empty("No assessments issued","An examiner must accept a submitted return before an assessment is recorded."))+
+ list.map(a=>'<tr><td><strong>'+e(a.caseNumber)+'</strong><div class="tax-sub">'+e(a.adjustmentKind)+'</div></td><td>'+e(a.taxpayerName)+'</td><td>'+e(periodLabel(a.returnType,a.taxYear,a.period))+'</td><td class="tax-mono">'+money(a.taxDueCents)+'</td><td class="tax-mono">'+(a.deltaTaxCents<0?"−":"+")+money(Math.abs(a.deltaTaxCents))+'</td><td>'+money(a.balanceCents)+' / '+money(a.refundClaimCents)+'</td></tr>').join("")+'</tbody></table></div>':empty("No assessments issued","An examiner must accept a submitted return before an assessment is recorded."))+
  '</div>';
 }
 function policiesHTML(state,h){
@@ -218,59 +236,87 @@ function filingRows(rows){
  return '<dl class="tax-filing-rows">'+rows.map(([label,value])=>
   '<div><dt>'+e(label)+'</dt><dd>'+e(filingValue(value))+'</dd></div>').join("")+'</dl>';
 }
-function filedEntries(r){
+export function filingFields(type){return businessFields[type]||[...(moneyFields[type]?.income||[]),...(moneyFields[type]?.deductions||[])];}
+function filingSections(r){
  const data=r.data;
- if(!data)return '<p class="tax-info">The saved form entries are unavailable for this return.</p>';
- const business=r.returnType==="business";
+ if(!data)return [];
  const fields=moneyFields[r.returnType];
- const section=(title,rows)=>'<section class="tax-filing-section"><h3>'+e(title)+'</h3>'+filingRows(rows)+'</section>';
- const financialRows=group=>group.map(([key,label])=>[label,filingAmount(data[key])]);
- return '<div class="tax-filing-sections">'+
- section("Filing information",business?[["Business activity or industry",data.businessActivity]]:
-  [["Filing status",filingStatuses[data.filingStatus]||data.filingStatus],["Eligible dependents",data.dependents]])+
- section("Income & revenue",financialRows(fields?.income||[]))+
- section("Deductions, credits & payments",financialRows(fields?.deductions||[]))+
- section("Supporting explanation & declaration",[
-  ["Supporting explanation",data.explanation],
-  ["Taxpayer declaration",typeof data.attested==="boolean"?(data.attested?"Acknowledged":"Not acknowledged"):null]
- ])+'</div>';
+ const amounts=group=>group.map(([key,label])=>[label,filingAmount(data[key])]);
+ const sections=businessFields[r.returnType]?[["Tax form entries",amounts(businessFields[r.returnType])]]:[
+  ["Filing information",r.returnType==="business"?[["Business activity or industry",data.businessActivity]]:
+   [["Filing status",filingStatuses[data.filingStatus]||data.filingStatus],["Eligible dependents",data.dependents]]],
+  ["Income & revenue",amounts(fields?.income||[])],["Deductions, credits & payments",amounts(fields?.deductions||[])]];
+ return [...sections,["Supporting explanation & declaration",[["Supporting explanation",data.explanation],
+  ["Taxpayer declaration",typeof data.attested==="boolean"?(data.attested?"Acknowledged":"Not acknowledged"):null]]]];
+}
+function calculatedRows(calculation){
+ if(!calculation)return [];
+ return [["Gross income or receipts","grossIncomeCents"],["Deductions or exemptions","deductionsCents"],["Taxable amount","taxableIncomeCents"],
+  ["Tax before credits","baseTaxCents"],["Credits requested","requestedCreditsCents"],["Credits applied","appliedCreditsCents"],
+  ["Tax liability","taxDueCents"],["Reported payments","paymentsCents"],["Refund claimed","refundCents"],["Balance due","balanceCents"]]
+  .filter(([,key])=>calculation[key]!=null).map(([label,key])=>[label,money(calculation[key])]);
+}
+const filedEntries=r=>r.data?'<div class="tax-filing-sections">'+filingSections(r).map(([title,rows])=>'<section class="tax-filing-section"><h3>'+e(title)+'</h3>'+filingRows(rows)+'</section>').join("")+'</div>':'<p class="tax-info">The saved form entries are unavailable for this return.</p>';
+export function printFullFiling(r){
+ const sections=filingSections(r).map(([title,rows])=>({title,rows:[["Field","Reported value"],...rows.map(([label,value])=>[label,filingValue(value)])]}));
+ if(r.calculation)sections.push({title:"Calculated amounts",rows:[["Field","Calculated value"],...calculatedRows(r.calculation)]});
+ if(r.calculation?.reviewFlags?.length)sections.push({title:"Examination indicators",body:r.calculation.reviewFlags.join("\n")});
+ if(r.decisionReason)sections.push({title:"Determination or correspondence",body:r.decisionReason});
+ printDocument({heading:"Full tax filing",reference:r.caseNumber||r.id,rows:[["Taxpayer",r.taxpayerName],["Filing type",labelType(r.returnType)],
+  ["Tax period",periodLabel(r.returnType,r.taxYear,r.period)],["Status",labels[r.status]||r.status],["Submitted",date(r.submittedAt)],
+  ["Reviewed",date(r.reviewedAt)],["Examiner",r.reviewerName||"—"],["Filing deadline",r.filingDue||"—"],["Payment deadline",r.paymentDue||"—"]],sections});
+}
+async function openHistory(r,h){
+ try{
+  const {data}=await call("getTaxFilingHistory",{returnId:r.id});
+  const baseline=data.base||data.items[1];
+  const candidate=r.status==="draft"?r:data.items[0]||r;
+  const beforeRows=Object.fromEntries(filingSections({...r,...baseline}).flatMap(([,rows])=>rows));
+  const afterRows=filingSections({...r,...candidate}).flatMap(([,rows])=>rows);
+  const changes=baseline?afterRows.filter(([label,value])=>String(value??"")!==String(beforeRows[label]??"")):[];
+  const difference=baseline&&baseline.calculation&&candidate.calculation?candidate.calculation.taxDueCents-baseline.calculation.taxDueCents:null;
+  const comparison=baseline?'<h3>Line changes</h3><p>Compared with '+e(data.base?.caseNumber||"the preceding submission")+(difference==null?"":" · Tax liability change "+e(money(difference)))+'</p>'+
+   (changes.length?'<div class="table-wrap"><table class="table"><thead><tr><th>Field</th><th>Previous</th><th>Current</th></tr></thead><tbody>'+changes.map(([label,value])=>'<tr><td>'+e(label)+'</td><td>'+e(filingValue(beforeRows[label]))+'</td><td>'+e(filingValue(value))+'</td></tr>').join("")+'</tbody></table></div>':'<p>No form lines changed.</p>'):'';
+  h.modal("Filing history · "+r.caseNumber,'<div class="modal-body">'+comparison+'<h3>Submitted versions</h3>'+
+   (data.items.length?data.items.map(item=>'<details class="ops-request"><summary>Submission '+e(item.number)+' · '+e(date(item.submittedAt))+(item.legacy?' · legacy record':'')+'</summary>'+filedEntries({...r,...item})+filingRows(calculatedRows(item.calculation))+(item.determination?filingRows([["Determination",labels[item.determination.status]||item.determination.status],["Examiner",item.determination.reviewer],["Reviewed",date(item.determination.at)],["Reason",item.determination.reason]]):"")+'</details>').join(""):'<p>No submitted versions are available.</p>')+
+   (data.truncated?'<p>Showing the latest 40 submissions.</p>':'')+'</div><div class="modal-bottom"><button class="button secondary" data-close>Close</button></div>');
+ }catch(err){h.toast(err.message,true);}
 }
 export function openReturnDetails(r,state,h,{examine=false,readOnly=false,onBack}={}){
  const calculation=r.calculation;
  let info='<div class="modal-body"><div class="tax-detail-grid">'+
- [["Taxpayer",r.taxpayerName],["Filing reference",r.caseNumber||r.id],["Tax year",r.taxYear],["Return type",labelType(r.returnType)],
+ [["Taxpayer",r.taxpayerName],["Filing reference",r.caseNumber||r.id],["Tax period",periodLabel(r.returnType,r.taxYear,r.period)],["Return type",labelType(r.returnType)],
  ["Processing status",labels[r.status]||r.status],["Submitted",date(r.submittedAt)],
  ["Policy version",r.policySnapshot?.version??r.policyVersion??calculation?.policyVersion],
- ["Reviewed",date(r.reviewedAt)]].map(([a,b])=>'<div><small>'+e(a)+'</small><strong>'+e(filingValue(b))+'</strong></div>').join("")+'</div>'+
+ ["Reviewed",date(r.reviewedAt)],["Examiner",r.reviewerName],["Filing deadline",r.filingDue],["Payment deadline",r.paymentDue]].map(([a,b])=>'<div><small>'+e(a)+'</small><strong>'+e(filingValue(b))+'</strong></div>').join("")+'</div>'+
  '<h3 class="tax-filing-heading">Filed form entries</h3>'+filedEntries(r)+
  '<h3 class="tax-filing-heading">Calculated amounts</h3>'+
- (calculation?filingRows([
- ["Gross income",calculation.grossIncomeCents],["Allowable deductions",calculation.deductionsCents],
- ["Taxable income",calculation.taxableIncomeCents],["Tax before credits",calculation.baseTaxCents],
- ["Credits requested",calculation.requestedCreditsCents],["Credits applied",calculation.appliedCreditsCents],
- ["Tax liability",calculation.taxDueCents],["Payments and withholding",calculation.paymentsCents],
- ["Refund claimed",calculation.refundCents],["Balance due",calculation.balanceCents]
- ].map(([label,value])=>[label,value==null?null:money(value)])):'<p class="tax-info">A saved calculation is unavailable.</p>')+
+ (calculation?filingRows(calculatedRows(calculation)):'<p class="tax-info">A saved calculation is unavailable.</p>')+
+ (r.withholdingMatch?'<h3 class="tax-filing-heading">Employer statement matching</h3>'+filingRows([["Issued statements",r.withholdingMatch.count],["Wages on statements",money(r.withholdingMatch.wagesCents)],["Withholding on statements",money(r.withholdingMatch.withheldCents)],["Difference in wages",money(r.withholdingMatch.wageDifferenceCents)],["Difference in withholding",money(r.withholdingMatch.withholdingDifferenceCents)]]):"")+
  (r.calculation?.reviewFlags?.length?'<div class="tax-review-alert"><strong>Automated examination indicators</strong>'+r.calculation.reviewFlags.map(t=>'<p>• '+e(t)+'</p>').join("")+'</div>':"")+
  (r.decisionReason?'<div class="tax-info" style="margin-top:18px"><strong>Decision or correspondence:</strong> '+e(r.decisionReason)+'</div>':"")+
  '<div class="tax-sub" style="margin-top:18px">All amounts are fictional. This filing is not a real tax or government document.</div></div><div class="modal-bottom">';
  const editable=!readOnly&&["draft","information_requested","rejected"].includes(r.status);
  if(editable)info+='<button class="button" id="tax-edit-return">Edit return</button>';
- else if(!readOnly&&r.status==="accepted"&&!r.amendedFrom)info+='<button class="button secondary" id="tax-amend-return">Start amendment</button>';
- if(examine&&r.status==="submitted"&&canDetermine(state))info+='<button class="button" id="tax-decide-return">Issue determination</button>';
+ else if(!readOnly&&r.status==="accepted"&&!r.amendedFrom&&!businessFields[r.returnType])info+='<button class="button secondary" id="tax-amend-return">Start amendment</button>';
+ if(examine&&r.status==="submitted"&&canDetermine(state,r.returnType))info+='<button class="button" id="tax-decide-return">Issue determination</button>';
+ if(isFiledReturn(r))info+='<button class="button secondary" id="tax-print-full">Print full filing</button><button class="button secondary" id="tax-show-history">Filing history</button>';
  if(onBack)info+='<button class="button secondary" id="tax-filing-back">Back to case file</button>';
  info+='<button class="button secondary" data-close>Close</button></div>';
  h.modal((examine?"Return examination":"Full tax filing")+" · "+(r.caseNumber||r.id),info,el=>{
   el.querySelector(".modal").classList.add("tax-filing-modal");
+  el.querySelector("#tax-print-full")?.addEventListener("click",()=>{try{printFullFiling(r);}catch(err){h.toast(err.message,true);}});
+  el.querySelector("#tax-show-history")?.addEventListener("click",()=>openHistory(r,h));
   el.querySelector("#tax-filing-back")?.addEventListener("click",()=>{el.remove();onBack();});
   el.querySelector("#tax-edit-return")?.addEventListener("click",()=>{
+   if(businessFields[r.returnType]){el.remove();openBusinessReturn(state,h,r);return;}
    editing={id:r.id,returnType:r.returnType,taxYear:r.taxYear,taxpayerId:r.taxpayerId,data:{...r.data}};
    step=0;preview=null;el.remove();location.hash="filings";h.renderShell();
   });
   el.querySelector("#tax-amend-return")?.addEventListener("click",async()=>{
    try{
     const response=await call("beginTaxAmendment",{returnId:r.id});
-    editing={id:response.data.returnId,returnType:r.returnType,taxYear:r.taxYear,taxpayerId:r.taxpayerId,data:{...r.data,attested:false}};
+    editing={id:response.data.returnId,returnType:r.returnType,taxYear:r.taxYear,taxpayerId:r.taxpayerId,data:{...response.data.data,attested:false}};
     step=0;preview=null;el.remove();location.hash="filings";h.renderShell();
    }catch(err){h.toast(err.message,true);}
   });
@@ -278,7 +324,7 @@ export function openReturnDetails(r,state,h,{examine=false,readOnly=false,onBack
  });
 }
 function decisionModal(r,h){
- const canAccept=r.ownerUid!==h.state.user?.uid;
+ const canAccept=r.ownerUid!==h.state.user?.uid&&r.taxpayerId!==h.state.me?.taxpayerId;
  h.modal("Examiner determination",'<div class="modal-body"><div class="tax-info"><strong>Return:</strong> '+e(r.caseNumber)+' · '+e(r.taxpayerName)+'</div>'+
  '<div class="field" style="margin-top:18px"><label>Proposed disposition</label><select id="tax-decision" class="input">'+
  '<option value="accept" '+(!canAccept?"disabled":"")+'>Accept and record assessment</option>'+
@@ -294,7 +340,7 @@ function decisionModal(r,h){
   if(reason.trim().length<12){h.toast("Write a meaningful examiner decision reason.",true);return;}
   button.disabled=true;
   try{
-   await call("reviewTaxReturn",{returnId:r.id,action:select.value,reason});
+   await call(businessFields[r.returnType]?"reviewBusinessTaxReturn":"reviewTaxReturn",{returnId:r.id,action:select.value,reason});
    h.toast("Examiner determination recorded.");el.remove();await h.reload();
   }catch(err){h.toast(err.message,true);}finally{button.disabled=false;}
  });
@@ -363,9 +409,16 @@ export function taxPageBind(state,h){
  if(!taxPages.includes(state.page))return;
  h.state=state;
  document.getElementById("tax-new")?.addEventListener("click",()=>newReturnDialog(state,h));
- document.getElementById("tax-search")?.addEventListener("input",ev=>{searchTerm=ev.target.value;const focus=ev.target.selectionStart;h.renderShell();const field=document.getElementById("tax-search");field?.focus();field?.setSelectionRange(focus,focus);});
- document.getElementById("tax-status-filter")?.addEventListener("change",ev=>{statusFilter=ev.target.value;h.renderShell();});
- document.getElementById("tax-queue-search")?.addEventListener("change",ev=>{searchTerm=ev.target.value;h.renderShell();});
+ document.getElementById("tax-search-form")?.addEventListener("submit",ev=>{
+  ev.preventDefault();const form=new FormData(ev.currentTarget);
+  searchTerm=form.get("q");statusFilter=form.get("status");archiveYear=form.get("year");archiveType=form.get("type");cursors=[];h.reload();
+ });
+ document.getElementById("tax-next-page")?.addEventListener("click",()=>{if(nextCursor){cursors.push(nextCursor);h.reload();}});
+ document.getElementById("tax-prev-page")?.addEventListener("click",()=>{cursors.pop();h.reload();});
+ if(state.page==="filings"&&state.routeTarget&&linkedFiling?.id===state.routeTarget&&!state.loading){
+  const record=linkedFiling;linkedFiling=null;
+  openReturnDetails(record,state,h);
+ }
  document.getElementById("tax-assess-search")?.addEventListener("change",ev=>{searchTerm=ev.target.value;h.renderShell();});
  document.getElementById("tax-policy-year")?.addEventListener("change",ev=>{yearFilter=ev.target.value;h.renderShell();});
  document.querySelectorAll("[data-tax-open]").forEach(el=>el.addEventListener("click",()=>{const r=returns.find(x=>x.id===el.dataset.taxOpen);if(r)openReturnDetails(r,state,h);}));
@@ -374,8 +427,21 @@ export function taxPageBind(state,h){
  if(!editing||state.page!=="filings")return;
  document.querySelectorAll("[data-money]").forEach(el=>el.addEventListener("input",()=>{editing.data[el.dataset.money]=el.value;preview=null;}));
  document.querySelectorAll("[data-form-field]").forEach(el=>el.addEventListener("input",()=>{editing.data[el.dataset.formField]=el.type==="number"?Number(el.value):el.value;preview=null;}));
+ document.getElementById("tax-use-statements")?.addEventListener("click",async()=>{
+  const target=editing;
+  try{
+   const {data}=await call("getWageStatementTotals",{taxpayerId:target.taxpayerId,year:target.taxYear});
+   if(editing!==target||state.page!=="filings")return;
+   if(!data.count){h.toast("No employer statements are available for this year.");return;}
+   h.modal("Use issued employer statements",'<div class="modal-body"><p>'+e(data.count)+' statement(s). Replace the draft wages and withholding with '+e(money(data.wagesCents))+' and '+e(money(data.withheldCents))+'?</p></div><div class="modal-bottom"><button class="button secondary" data-close>Cancel</button><button class="button" id="tax-confirm-statements">Use statement totals</button></div>',el=>{
+    el.querySelector("#tax-confirm-statements").addEventListener("click",()=>{
+     if(editing===target){editing.data.wages=(data.wagesCents/100).toFixed(2);editing.data.withholding=(data.withheldCents/100).toFixed(2);preview=null;h.renderShell();}el.remove();
+    });
+   });
+  }catch(err){h.toast(err.message,true);}
+ });
  document.getElementById("tax-attest")?.addEventListener("change",ev=>{editing.data.attested=ev.target.checked;});
- document.getElementById("tax-back-list")?.addEventListener("click",()=>{editing=null;preview=null;h.reload();});
+ document.getElementById("tax-back-list")?.addEventListener("click",()=>{editing=null;preview=null;if(state.routeTarget)location.hash="filings";else h.reload();});
  document.getElementById("tax-prev")?.addEventListener("click",()=>{step=Math.max(0,step-1);h.renderShell();});
  document.getElementById("tax-next")?.addEventListener("click",async()=>{step=Math.min(3,step+1);h.renderShell();if(step===3)await calculatePreview(h);});
  document.getElementById("tax-calculate")?.addEventListener("click",()=>calculatePreview(h));

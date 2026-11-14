@@ -173,7 +173,8 @@ function summarizeDoc(d,kind){
  const src=d.data();
  if(kind==="taxReturns")return {id:d.id,caseNumber:src.caseNumber,
   taxYear:src.taxYear,returnType:src.returnType,status:src.status,
-  data:src.data,calculation:src.calculation,submittedAt:dateValue(src.submittedAt),
+  data:src.data,calculation:src.calculation,period:src.period??null,withholdingMatch:src.withholdingMatch||null,
+  filingDue:src.filingDue||null,paymentDue:src.paymentDue||null,reviewerName:src.reviewerName||null,submittedAt:dateValue(src.submittedAt),
   reviewedAt:dateValue(src.reviewedAt),decisionReason:src.decisionReason||"",
   policyVersion:src.policySnapshot?.version||null};
  if(kind==="treasuryAccounts")return {id:d.id,taxYear:src.taxYear,
