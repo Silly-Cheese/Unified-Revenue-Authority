@@ -1,5 +1,6 @@
 // Generation 6 — Institutional Intelligence, Registry Search and Document Studio.
 import {call} from "./auth.js";
+import {isFiledReturn,openReturnDetails} from "./tax.js";
 import {openPortalActivation,openPortalReset,portalStatus} from "./portal.js";
 import {escapeHTML as E,centsText as cash,csvText,createCSV,printDocument} from "./documents.js";
 
@@ -109,6 +110,14 @@ function dossierPage(s,h){
  ["treasuryReceipts","Payment receipts"],["treasuryRefunds","Refund requests"],["treasuryPlans","Payment arrangements"],["agencyCases","Agency cases"]];
  const activity=tabs.map(([key,label])=>{
   const records=r[key]||[];
+  if(key==="taxReturns"){
+   const filed=records.filter(isFiledReturn);
+   return '<div class="e-dossier-line"><div><strong>'+E(label)+'</strong><span>'+number(filed.length)+
+    ' shown'+(partial.includes(key)?" · dossier limited to 100 returns":"")+'</span></div>'+
+    (filed.length?'<div class="e-dossier-items">'+filed.map(item=>
+     '<button class="link" data-e-filing="'+E(item.id)+'">'+E(item.caseNumber||item.id)+' · '+E(item.taxYear)+'</button>'
+    ).join("")+'</div>':'<small>No filed returns found</small>')+'</div>';
+  }
   return '<div class="e-dossier-line"><div><strong>'+E(label)+'</strong><span>'+number(records.length)+' linked records'+(partial.includes(key)?" (limited to 100)":"")+'</span></div>'+
    (records.length?'<div class="e-dossier-items">'+records.slice(0,8).map(y=>'<span>'+E(y.caseNumber||y.title||y.id.slice(0,14))+
    ' · '+E(y.status||y.taxYear||"Recorded")+'</span>').join("")+'</div>':
@@ -350,6 +359,11 @@ export function enterprisePageBind(s,h){
  document.getElementById("e-reset-portal")?.addEventListener("click",()=>{
   if(s.me?.role==="commissioner"&&dossier)openPortalReset(dossier.taxpayer,h);
  });
+ document.querySelectorAll("[data-e-filing]").forEach(button=>button.addEventListener("click",()=>{
+  if(dossierViewer!==s.user?.uid)return;
+  const filing=dossier?.records?.taxReturns?.find(item=>item.id===button.dataset.eFiling);
+  if(filing)openReturnDetails({...filing,taxpayerName:dossier.taxpayer.fullName},s,h,{readOnly:true});
+ }));
  document.querySelectorAll("[data-e-dossier]").forEach(button=>button.addEventListener("click",()=>{
   selectedTaxpayerId=button.dataset.eDossier;dossier=null;location.hash="#dossier";
  }));

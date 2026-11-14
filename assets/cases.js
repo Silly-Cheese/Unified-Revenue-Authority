@@ -1,5 +1,6 @@
 // Generation 4 — Compliance casework, audits, collections, appeals and investigations.
 import {call} from "./auth.js";
+import {isFiledReturn,openReturnDetails} from "./tax.js";
 export const casePages=["examinations","appeals","collections","investigations"];
 let cases=[],officers=[],accounts=[],selectedStatus="all",search="";
 const E=(v)=>String(v??"").replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
@@ -95,8 +96,10 @@ function createDialog(s,h){
  });
 }
 async function viewFile(s,h,id){
+ const viewer=s.user?.uid;
  let item;
  try{item=(await call("getAgencyCase",{caseId:id})).data;}catch(err){h.toast(err.message,true);return;}
+ if(s.user?.uid!==viewer)return;
  const c=item.case,caseEvents=item.events||[],notices=item.notices||[];
  const sections=[
   ["Taxpayer",c.taxpayerName],["Reference",c.caseNumber],["Tax period",c.taxYear+" · "+c.returnType],
@@ -104,9 +107,13 @@ async function viewFile(s,h,id){
   ["Opened",date(c.createdAt)],["Due date",c.dueDate||"Not assigned"],["Priority",label(c.priority)]
  ];
  const canAct=staff(s);
+ const canViewReturns=canAct&&["audit","investigation"].includes(c.kind);
  let body='<div class="c-case-head"><div class="eyebrow">OFFICIAL CASE FILE · RP</div><h3>'+E(c.title)+'</h3><p>'+E(c.caseNumber)+'</p></div>'+
  '<div class="c-details">'+sections.map(([a,b])=>'<div><small>'+E(a)+'</small><strong>'+E(b)+'</strong></div>').join("")+'</div>'+
  '<h3 class="c-subtitle">Opening statement</h3><div class="c-statement">'+E(c.summary)+'</div>'+
+ (canViewReturns?'<section class="c-filing-section"><div class="c-tabs-title"><h3>Filed tax returns</h3></div>'+
+ '<button class="button secondary" id="c-load-filings">Find filings for this tax period</button>'+
+ '<div id="c-case-filings" aria-live="polite"></div></section>':"")+
  (c.proposalStatus?'<div class="c-info"><strong>Adjustment proposal:</strong> '+E(label(c.proposalStatus))+
  ' · Proposed tax: '+cash(c.proposedTaxDueCents)+'<br>'+E(c.proposalReason||"")+'</div>':"")+
  (c.determinationReason?'<div class="c-info"><strong>Recorded determination:</strong> '+E(c.determinationReason)+'</div>':"")+
@@ -125,6 +132,36 @@ async function viewFile(s,h,id){
  (supervisor(s)&&c.proposalStatus==="pending"?'<button class="button" id="c-determine-action">Determine adjustment</button>':"")+'</div></div>':"")+
  '<div class="c-smallprint">Fictional administrative records. All figures and legal procedures exist only within the simulation.</div>';
  const el=modal(h,"Case file · "+c.caseNumber,body,'',el=>{
+  el.querySelector("#c-load-filings")?.addEventListener("click",async event=>{
+   const button=event.currentTarget;
+   const results=el.querySelector("#c-case-filings");
+   button.disabled=true;
+   results.textContent="Loading filed returns…";
+   try{
+    const {data}=await call("getTaxpayerDossier",{taxpayerId:c.taxpayerId});
+    if(!el.isConnected||s.user?.uid!==viewer)return;
+    const filings=(data.records?.taxReturns||[]).filter(r=>
+     r.taxYear===c.taxYear&&r.returnType===c.returnType&&isFiledReturn(r)
+    ).sort((a,b)=>String(b.submittedAt||"").localeCompare(String(a.submittedAt||"")));
+    results.innerHTML=(filings.length?filings.map(r=>
+     '<button type="button" class="c-notice" data-c-filing="'+E(r.id)+'"><strong>'+E(r.caseNumber||r.id)+
+     '</strong><small>'+E(label(r.status))+' · '+E(date(r.submittedAt))+' · View full filing</small></button>'
+    ).join(""):'<p class="c-statement">No filed returns found for this taxpayer, year, and return type.</p>')+
+    (data.limits?.partial?.includes("taxReturns")?'<p class="c-smallprint">The taxpayer dossier shows up to 100 returns.</p>':"");
+    results.querySelectorAll("[data-c-filing]").forEach(entry=>entry.addEventListener("click",()=>{
+     if(s.user?.uid!==viewer)return;
+     const filing=filings.find(r=>r.id===entry.dataset.cFiling);
+     el.remove();
+     openReturnDetails({...filing,taxpayerName:c.taxpayerName},s,h,{
+      readOnly:true,onBack:()=>viewFile(s,h,id)
+     });
+    }));
+    button.remove();
+   }catch(err){
+    results.textContent=err?.message||"Could not load the filed returns. Try again.";
+    button.disabled=false;
+   }
+  });
   el.querySelectorAll("[data-c-notice]").forEach(btn=>btn.addEventListener("click",()=>{
    const notice=notices.find(n=>n.id===btn.dataset.cNotice);
    if(!notice)return;
